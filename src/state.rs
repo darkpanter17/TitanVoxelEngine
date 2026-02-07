@@ -92,10 +92,22 @@ impl<'a> State<'a> {
 
         // --- CHUNK DATA ---
         let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
+        use crate::chunk::{CHUNK_SIZE, CHUNK_HEIGHT};
+        for x in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                // Simple terrain gen: sine wave hills
+                // Use f32 for math, cast to usize for loop
+                let h_f32 = 10.0 + ((x as f32) * 0.2).sin() * 5.0 + ((z as f32) * 0.3).cos() * 5.0;
+                let h = (h_f32.max(1.0) as usize).min(CHUNK_HEIGHT - 1);
+
+                for y in 0..h {
+                    // ID 1=Dirt (Layer 0), 2=Grass (Layer 1), 3=Stone (Layer 2)
+                    // Logic: Top=Grass, Top-3..Top=Dirt, Rest=Stone
+                    let id = if y == h - 1 { 2 } else if y > h.saturating_sub(4) { 1 } else { 3 };
+                    chunk.set_voxel(x, y, z, id);
+                }
+            }
+        }
         let mesh = mesher::generate_mesh(&chunk);
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
