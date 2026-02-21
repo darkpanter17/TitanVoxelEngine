@@ -2431,7 +2431,6 @@ dependencies = [
  "log",
  "mlua",
  "pollster",
- "rayon",
  "reqwest",
  "wgpu",
  "winit",

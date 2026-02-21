@@ -1,5 +1,3 @@
-use image::GenericImageView;
-
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
@@ -44,14 +42,14 @@ impl Texture {
         // 1. Cargar imágenes y asegurar tamaño
         for (i, path) in paths.iter().enumerate() {
             let img = image::open(path)?.to_rgba8();
-            let dim = img.dimensions();
+            let (w, h) = (img.width(), img.height());
             
             if i == 0 {
-                width = dim.0; height = dim.1;
+                width = w; height = h;
             } else {
                 // En un motor real, aquí redimensionaríamos. Hoy hacemos panic si no coinciden.
-                assert_eq!(dim.0, width, "Todas las texturas deben tener el mismo ancho");
-                assert_eq!(dim.1, height, "Todas las texturas deben tener el mismo alto");
+                assert_eq!(w, width, "Todas las texturas deben tener el mismo ancho");
+                assert_eq!(h, height, "Todas las texturas deben tener el mismo alto");
             }
             layers.push(img);
         }
