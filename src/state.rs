@@ -92,10 +92,16 @@ impl<'a> State<'a> {
 
         // --- CHUNK DATA ---
         let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
+        for x in 0..32 {
+            for z in 0..32 {
+                let h = ((x as f32 * 0.2).sin() + (z as f32 * 0.2).cos()) * 5.0 + 10.0;
+                let height = h as usize;
+                for y in 0..height {
+                    let id = if y == height - 1 { 1 } else { 2 };
+                    chunk.set_voxel(x, y, z, id);
+                }
+            }
+        }
         let mesh = mesher::generate_mesh(&chunk);
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
