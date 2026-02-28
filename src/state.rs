@@ -1,7 +1,7 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
 use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
-use glam::{IVec3, Vec3};
+use glam::Vec3;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -91,7 +91,7 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
+        let mut chunk = Chunk::new(glam::IVec3::ZERO);
         for x in 0..32 { for z in 0..32 { for y in 0..16 {
             let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
             chunk.set_voxel(x, y, z, id);
