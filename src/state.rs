@@ -26,18 +26,20 @@ impl<'a> State<'a> {
 
         // --- LOAD TEXTURES ---
         // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
+        const TEXTURE_PATHS: [&str; 3] = [
+            "assets/textures/1.png", // Dirt
+            "assets/textures/2.png", // Grass
+            "assets/textures/3.png", // Stone
         ];
+
+        let texture_paths_vec = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect::<Vec<_>>();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
-        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
+        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths_vec.clone()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
-                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
+                texture::Texture::create_placeholder_texture_array(&device, &queue, TEXTURE_PATHS.len() as u32)
             }
         };
 
@@ -92,10 +94,19 @@ impl<'a> State<'a> {
 
         // --- CHUNK DATA ---
         let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
+        for x in 0..crate::chunk::CHUNK_SIZE {
+            for z in 0..crate::chunk::CHUNK_SIZE {
+                // Generar terreno con onda senoidal
+                let base_height = 10;
+                let height_offset = ((x as f32 / 5.0).sin() * 2.0 + (z as f32 / 5.0).cos() * 2.0) as i32;
+                let h = (base_height + height_offset).max(1) as usize;
+
+                for y in 0..h {
+                    let id = if y == h - 1 { 2 } else { 1 }; // 2=Grass (Top), 1=Dirt (Bottom)
+                    chunk.set_voxel(x, y, z, id);
+                }
+            }
+        }
         let mesh = mesher::generate_mesh(&chunk);
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
