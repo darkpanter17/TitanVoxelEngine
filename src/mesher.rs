@@ -41,35 +41,91 @@ pub struct Mesh {
     pub indices: Vec<u32>,
 }
 
-// (Mantenemos la lógica de Greedy Meshing igual, solo cambia el Vertex struct arriba)
 pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut index_count = 0;
-    
-    // NOTA: Para este test, simplificamos el loop solo para mostrar geometría rápida
-    // En producción, aquí va tu algoritmo completo del Patch 01.
+
     for x in 0..CHUNK_SIZE {
-        for z in 0..CHUNK_SIZE {
-            for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
-                    let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
-                 }
+        for y in 0..CHUNK_HEIGHT {
+            for z in 0..CHUNK_SIZE {
+                let voxel = chunk.get_voxel(x, y, z);
+                if voxel == 0 {
+                    continue;
+                }
+
+                let layer = (voxel - 1) as u32;
+
+                let xf = x as f32;
+                let yf = y as f32;
+                let zf = z as f32;
+
+                // +Y Top
+                if y == CHUNK_HEIGHT - 1 || chunk.get_voxel(x, y + 1, z) == 0 {
+                    push_face(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], layer);
+                }
+                // -Y Bottom
+                if y == 0 || chunk.get_voxel(x, y - 1, z) == 0 {
+                    push_face(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf, zf + 1.0], [xf, yf, zf], [xf + 1.0, yf, zf], [xf + 1.0, yf, zf + 1.0], layer);
+                }
+                // +X Right
+                if x == CHUNK_SIZE - 1 || chunk.get_voxel(x + 1, y, z) == 0 {
+                    push_face(&mut vertices, &mut indices, &mut index_count,
+                              [xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf], layer);
+                }
+                // -X Left
+                if x == 0 || chunk.get_voxel(x - 1, y, z) == 0 {
+                    push_face(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf, zf], [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0], layer);
+                }
+                // +Z Front
+                if z == CHUNK_SIZE - 1 || chunk.get_voxel(x, y, z + 1) == 0 {
+                    push_face(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0], layer);
+                }
+                // -Z Back
+                if z == 0 || chunk.get_voxel(x, y, z - 1) == 0 {
+                    push_face(&mut vertices, &mut indices, &mut index_count,
+                              [xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf], [xf, yf, zf], layer);
+                }
             }
         }
     }
     Mesh { vertices, indices }
 }
 
-fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
-    inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
+fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
+             p0: [f32; 3], p1: [f32; 3], p2: [f32; 3], p3: [f32; 3], layer: u32) {
+    verts.push(Vertex { pos: p0, uv: [0.0, 1.0], layer });
+    verts.push(Vertex { pos: p1, uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: p2, uv: [1.0, 0.0], layer });
+    verts.push(Vertex { pos: p3, uv: [1.0, 1.0], layer });
+    // Winding order CCW
+    inds.extend_from_slice(&[*count, *count + 1, *count + 2, *count, *count + 2, *count + 3]);
     *count += 4;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_neighbor_culling() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        // Colocamos dos bloques adyacentes
+        chunk.set_voxel(10, 10, 10, 1);
+        chunk.set_voxel(11, 10, 10, 1);
+
+        let mesh = generate_mesh(&chunk);
+
+        // Cada cubo independiente tendría 6 caras * 4 vértices = 24 vértices (48 total)
+        // Con culling, las caras compartidas (entre x=10 y x=11) no se dibujan.
+        // 2 cubos adjuntos = 10 caras * 4 vértices = 40 vértices
+        assert_eq!(mesh.vertices.len(), 40);
+        // Cada cara tiene 2 triángulos * 3 índices = 6 índices. 10 caras = 60 índices.
+        assert_eq!(mesh.indices.len(), 60);
+    }
 }
