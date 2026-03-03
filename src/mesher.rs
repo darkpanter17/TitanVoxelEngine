@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
+use crate::chunk::{Chunk, CHUNK_SIZE};
 
 // Derivamos Pod y Zeroable para que bytemuck pueda copiar esto como bytes puros
 #[repr(C)]
@@ -56,7 +56,7 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                     // Generar cubo simple si hay voxel (Placeholder para test gráfico)
                     // Cara Superior
                     let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
+                    push_quad(&mut vertices, &mut indices, &mut index_count, [xf, yf+1.0, zf], 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
                  }
             }
         }
@@ -65,11 +65,42 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 }
 
 fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
+             pos: [f32; 3], w: f32, d: f32, layer: u32) {
+    let [x, y, z] = pos;
     verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
     verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
     verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
     verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_generate_mesh_empty_chunk() {
+        let chunk = Chunk::new(IVec3::ZERO);
+        let mesh = generate_mesh(&chunk);
+        assert!(mesh.vertices.is_empty());
+        assert!(mesh.indices.is_empty());
+    }
+
+    #[test]
+    fn test_generate_mesh_with_voxels() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        // Put a voxel at (0, 0, 0)
+        chunk.set_voxel(0, 0, 0, 1);
+
+        let mesh = generate_mesh(&chunk);
+
+        // Should generate 1 quad = 4 vertices, 6 indices
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.indices.len(), 6);
+
+        // Verify vertex properties
+        assert_eq!(mesh.vertices[0].layer, 1);
+    }
 }
