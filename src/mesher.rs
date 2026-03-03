@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, CHUNK_SIZE};
+use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
 
 // Derivamos Pod y Zeroable para que bytemuck pueda copiar esto como bytes puros
 #[repr(C)]
@@ -41,22 +41,65 @@ pub struct Mesh {
     pub indices: Vec<u32>,
 }
 
-// (Mantenemos la lógica de Greedy Meshing igual, solo cambia el Vertex struct arriba)
+// Helper functions para chequear bloques vecinos con culling intra-chunk.
+// En un motor completo se comprobaría contra chunks vecinos usando World.
+fn is_transparent(chunk: &Chunk, x: i32, y: i32, z: i32) -> bool {
+    if x < 0 || y < 0 || z < 0 || x >= CHUNK_SIZE as i32 || y >= CHUNK_HEIGHT as i32 || z >= CHUNK_SIZE as i32 {
+        return true; // Asumir aire fuera del chunk para culling básico
+    }
+    chunk.get_voxel(x as usize, y as usize, z as usize) == 0
+}
+
 pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut index_count = 0;
     
-    // NOTA: Para este test, simplificamos el loop solo para mostrar geometría rápida
-    // En producción, aquí va tu algoritmo completo del Patch 01.
+    let base_x = (chunk.position.x * CHUNK_SIZE as i32) as f32;
+    let base_y = (chunk.position.y * CHUNK_HEIGHT as i32) as f32;
+    let base_z = (chunk.position.z * CHUNK_SIZE as i32) as f32;
+
     for x in 0..CHUNK_SIZE {
-        for z in 0..CHUNK_SIZE {
-            for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
-                    let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, [xf, yf+1.0, zf], 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
+        for y in 0..CHUNK_HEIGHT {
+            for z in 0..CHUNK_SIZE {
+                 let id = chunk.get_voxel(x, y, z);
+                 if id != 0 {
+                    let layer = id as u32;
+                    let wx = base_x + x as f32;
+                    let wy = base_y + y as f32;
+                    let wz = base_z + z as f32;
+                    let ix = x as i32; let iy = y as i32; let iz = z as i32;
+
+                    // Top (Y+)
+                    if is_transparent(chunk, ix, iy + 1, iz) {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [wx, wy+1.0, wz], [wx, wy+1.0, wz+1.0], [wx+1.0, wy+1.0, wz+1.0], [wx+1.0, wy+1.0, wz], layer);
+                    }
+                    // Bottom (Y-)
+                    if is_transparent(chunk, ix, iy - 1, iz) {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [wx, wy, wz+1.0], [wx, wy, wz], [wx+1.0, wy, wz], [wx+1.0, wy, wz+1.0], layer);
+                    }
+                    // Front (Z+)
+                    if is_transparent(chunk, ix, iy, iz + 1) {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [wx+1.0, wy, wz+1.0], [wx+1.0, wy+1.0, wz+1.0], [wx, wy+1.0, wz+1.0], [wx, wy, wz+1.0], layer);
+                    }
+                    // Back (Z-)
+                    if is_transparent(chunk, ix, iy, iz - 1) {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [wx, wy, wz], [wx, wy+1.0, wz], [wx+1.0, wy+1.0, wz], [wx+1.0, wy, wz], layer);
+                    }
+                    // Right (X+)
+                    if is_transparent(chunk, ix + 1, iy, iz) {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [wx+1.0, wy, wz], [wx+1.0, wy+1.0, wz], [wx+1.0, wy+1.0, wz+1.0], [wx+1.0, wy, wz+1.0], layer);
+                    }
+                    // Left (X-)
+                    if is_transparent(chunk, ix - 1, iy, iz) {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [wx, wy, wz+1.0], [wx, wy+1.0, wz+1.0], [wx, wy+1.0, wz], [wx, wy, wz], layer);
+                    }
                  }
             }
         }
@@ -64,13 +107,13 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     Mesh { vertices, indices }
 }
 
-fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             pos: [f32; 3], w: f32, d: f32, layer: u32) {
-    let [x, y, z] = pos;
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
+fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
+             v0: [f32; 3], v1: [f32; 3], v2: [f32; 3], v3: [f32; 3], layer: u32) {
+    verts.push(Vertex { pos: v0, uv: [0.0, 1.0], layer });
+    verts.push(Vertex { pos: v1, uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: v2, uv: [1.0, 0.0], layer });
+    verts.push(Vertex { pos: v3, uv: [1.0, 1.0], layer });
+    // CCW (Counter-Clockwise)
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
@@ -96,9 +139,9 @@ mod tests {
 
         let mesh = generate_mesh(&chunk);
 
-        // Should generate 1 quad = 4 vertices, 6 indices
-        assert_eq!(mesh.vertices.len(), 4);
-        assert_eq!(mesh.indices.len(), 6);
+        // Should generate 6 quads (1 for each face) = 24 vertices, 36 indices
+        assert_eq!(mesh.vertices.len(), 24);
+        assert_eq!(mesh.indices.len(), 36);
 
         // Verify vertex properties
         assert_eq!(mesh.vertices[0].layer, 1);
