@@ -1,4 +1,4 @@
-mod chunk; mod mesher; mod texture; mod shader_loader; mod state; mod camera;
+mod chunk; mod mesher; mod texture; mod state; mod camera; pub mod world;
 
 use winit::{event::*, event_loop::EventLoop, window::WindowBuilder};
 use state::State;
