@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
+use crate::chunk::{Chunk, CHUNK_SIZE};
 
 // Derivamos Pod y Zeroable para que bytemuck pueda copiar esto como bytes puros
 #[repr(C)]
@@ -47,29 +47,57 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let mut indices = Vec::new();
     let mut index_count = 0;
     
-    // NOTA: Para este test, simplificamos el loop solo para mostrar geometría rápida
-    // En producción, aquí va tu algoritmo completo del Patch 01.
     for x in 0..CHUNK_SIZE {
         for z in 0..CHUNK_SIZE {
-            for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
+            for y in 0..crate::chunk::CHUNK_HEIGHT {
+                let id = chunk.get_voxel(x, y, z);
+                if id != 0 {
+                    let layer = (id - 1) as u32;
                     let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
-                 }
+
+                    // Cara Izquierda (-X)
+                    if x == 0 || chunk.get_voxel(x - 1, y, z) == 0 {
+                        verts(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf, zf+1.0], [xf, yf+1.0, zf+1.0], [xf, yf+1.0, zf], [xf, yf, zf], layer);
+                    }
+                    // Cara Derecha (+X)
+                    if x == CHUNK_SIZE - 1 || chunk.get_voxel(x + 1, y, z) == 0 {
+                        verts(&mut vertices, &mut indices, &mut index_count,
+                              [xf+1.0, yf, zf], [xf+1.0, yf+1.0, zf], [xf+1.0, yf+1.0, zf+1.0], [xf+1.0, yf, zf+1.0], layer);
+                    }
+                    // Cara Abajo (-Y)
+                    if y == 0 || chunk.get_voxel(x, y - 1, z) == 0 {
+                        verts(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf, zf+1.0], [xf, yf, zf], [xf+1.0, yf, zf], [xf+1.0, yf, zf+1.0], layer);
+                    }
+                    // Cara Arriba (+Y)
+                    if y == crate::chunk::CHUNK_HEIGHT - 1 || chunk.get_voxel(x, y + 1, z) == 0 {
+                        verts(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf+1.0, zf], [xf, yf+1.0, zf+1.0], [xf+1.0, yf+1.0, zf+1.0], [xf+1.0, yf+1.0, zf], layer);
+                    }
+                    // Cara Atrás (-Z)
+                    if z == 0 || chunk.get_voxel(x, y, z - 1) == 0 {
+                        verts(&mut vertices, &mut indices, &mut index_count,
+                              [xf, yf, zf], [xf, yf+1.0, zf], [xf+1.0, yf+1.0, zf], [xf+1.0, yf, zf], layer);
+                    }
+                    // Cara Frente (+Z)
+                    if z == CHUNK_SIZE - 1 || chunk.get_voxel(x, y, z + 1) == 0 {
+                        verts(&mut vertices, &mut indices, &mut index_count,
+                              [xf+1.0, yf, zf+1.0], [xf+1.0, yf+1.0, zf+1.0], [xf, yf+1.0, zf+1.0], [xf, yf, zf+1.0], layer);
+                    }
+                }
             }
         }
     }
     Mesh { vertices, indices }
 }
 
-fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
+fn verts(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
+         v0: [f32; 3], v1: [f32; 3], v2: [f32; 3], v3: [f32; 3], layer: u32) {
+    verts.push(Vertex { pos: v0, uv: [0.0, 1.0], layer });
+    verts.push(Vertex { pos: v1, uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: v2, uv: [1.0, 0.0], layer });
+    verts.push(Vertex { pos: v3, uv: [1.0, 1.0], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
