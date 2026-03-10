@@ -4,6 +4,7 @@ pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_HEIGHT: usize = 256;
 
 pub struct Chunk {
+    #[allow(dead_code)]
     pub position: IVec3,
     // Array plano es 10x más rápido que Vec<Vec<Vec>>>
     pub data: Box<[u16; CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE]>,
@@ -28,5 +29,36 @@ impl Chunk {
         if x < CHUNK_SIZE && y < CHUNK_HEIGHT && z < CHUNK_SIZE {
             self.data[x + (z * CHUNK_SIZE) + (y * CHUNK_SIZE * CHUNK_SIZE)] = id;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_get_set() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        chunk.set_voxel(31, 255, 31, 2);
+
+        assert_eq!(chunk.get_voxel(0, 0, 0), 1);
+        assert_eq!(chunk.get_voxel(31, 255, 31), 2);
+        assert_eq!(chunk.get_voxel(15, 100, 15), 0);
+    }
+
+    #[test]
+    fn test_chunk_bounds() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+
+        // Out of bounds get should return 0 safely
+        assert_eq!(chunk.get_voxel(32, 0, 0), 0);
+        assert_eq!(chunk.get_voxel(0, 256, 0), 0);
+        assert_eq!(chunk.get_voxel(0, 0, 32), 0);
+
+        // Out of bounds set should do nothing safely without panicking
+        chunk.set_voxel(32, 0, 0, 1);
+        chunk.set_voxel(0, 256, 0, 1);
+        chunk.set_voxel(0, 0, 32, 1);
     }
 }
