@@ -3,6 +3,12 @@ use wgpu::util::DeviceExt;
 use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
 use glam::{IVec3, Vec3};
 
+const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
+
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration, pub size: winit::dpi::PhysicalSize<u32>, pub window: &'a Window,
@@ -25,19 +31,14 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths_vec = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect::<Vec<String>>();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
-        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
+        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths_vec.clone()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
-                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
+                texture::Texture::create_placeholder_texture_array(&device, &queue, TEXTURE_PATHS.len() as u32)
             }
         };
 
