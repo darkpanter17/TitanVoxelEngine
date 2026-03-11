@@ -1,6 +1,11 @@
-use image::GenericImageView;
+pub const PLACEHOLDER_COLORS: [[u8; 4]; 3] = [
+    [100, 70, 50, 255],   // marrón (tierra)
+    [80, 140, 60, 255],   // verde (hierba)
+    [120, 120, 120, 255], // gris (piedra)
+];
 
 pub struct Texture {
+    #[allow(dead_code)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -129,11 +134,7 @@ impl Texture {
             view_formats: &[],
         });
         // Rellenar cada capa con un color distinto (RGBA 1x1) para distinguir bloques
-        let colors: [[u8; 4]; 3] = [
-            [100, 70, 50, 255],   // marrón (tierra)
-            [80, 140, 60, 255],   // verde (hierba)
-            [120, 120, 120, 255], // gris (piedra)
-        ];
+        let colors: [[u8; 4]; 3] = crate::texture::PLACEHOLDER_COLORS;
         for i in 0..num_layers.min(3) {
             let c = colors[i as usize];
             queue.write_texture(
