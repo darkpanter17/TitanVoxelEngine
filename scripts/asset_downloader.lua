@@ -1,7 +1,7 @@
 print("--- INICIANDO GESTOR DE ASSETS (LUA) ---")
 
 -- Lista de texturas CC0 para pruebas (rama main; si falla, probar master)
-local base = "https://raw.githubusercontent.com/fogleman/Craft/main/textures/"
+local base = "https://raw.githubusercontent.com/fogleman/Craft/master/textures/"
 local textures = {
     { name = "dirt",  url = base .. "dirt.png" },
     { name = "grass", url = base .. "grass.png" },
