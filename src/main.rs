@@ -61,7 +61,7 @@ fn main() {
     }
 
     // --- GRAPHICS SETUP ---
-    let event_loop = EventLoop::new().unwrap();
+    let event_loop = match EventLoop::new() { Ok(el) => el, Err(e) => { eprintln!("Error creating event loop: {}", e); return; } };
     let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
     window.set_cursor_visible(false); // Ocultar ratón para modo FPS
 

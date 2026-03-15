@@ -4,7 +4,7 @@ pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_HEIGHT: usize = 256;
 
 pub struct Chunk {
-    pub position: IVec3,
+    #[allow(dead_code)] pub position: IVec3,
     // Array plano es 10x más rápido que Vec<Vec<Vec>>>
     pub data: Box<[u16; CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE]>,
 }
