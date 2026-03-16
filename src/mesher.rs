@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
+use crate::chunk::{Chunk, CHUNK_SIZE};
 
 // Derivamos Pod y Zeroable para que bytemuck pueda copiar esto como bytes puros
 #[repr(C)]
@@ -52,11 +52,41 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     for x in 0..CHUNK_SIZE {
         for z in 0..CHUNK_SIZE {
             for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
+                 let voxel = chunk.get_voxel(x, y, z);
+                 if voxel != 0 {
                     let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
+                    let layer = voxel as u32;
+
+                    // Y+ (Top)
+                    if y == 255 || chunk.get_voxel(x, y + 1, z) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count,
+                            [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], layer);
+                    }
+                    // Y- (Bottom)
+                    if y == 0 || chunk.get_voxel(x, y - 1, z) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count,
+                            [xf, yf, zf + 1.0], [xf, yf, zf], [xf + 1.0, yf, zf], [xf + 1.0, yf, zf + 1.0], layer);
+                    }
+                    // X+ (Right)
+                    if x == CHUNK_SIZE - 1 || chunk.get_voxel(x + 1, y, z) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count,
+                            [xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf], layer);
+                    }
+                    // X- (Left)
+                    if x == 0 || chunk.get_voxel(x - 1, y, z) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count,
+                            [xf, yf, zf], [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0], layer);
+                    }
+                    // Z+ (Front)
+                    if z == CHUNK_SIZE - 1 || chunk.get_voxel(x, y, z + 1) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count,
+                            [xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0], layer);
+                    }
+                    // Z- (Back)
+                    if z == 0 || chunk.get_voxel(x, y, z - 1) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count,
+                            [xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf], [xf, yf, zf], layer);
+                    }
                  }
             }
         }
@@ -65,11 +95,11 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 }
 
 fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
+             p0: [f32; 3], p1: [f32; 3], p2: [f32; 3], p3: [f32; 3], layer: u32) {
+    verts.push(Vertex { pos: p0, uv: [0.0, 1.0], layer });
+    verts.push(Vertex { pos: p1, uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: p2, uv: [1.0, 0.0], layer });
+    verts.push(Vertex { pos: p3, uv: [1.0, 1.0], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
