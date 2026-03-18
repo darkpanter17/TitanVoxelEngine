@@ -1,13 +1,22 @@
+use std::collections::HashMap;
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, chunk::{Chunk, CHUNK_SIZE}, texture, camera, world::World};
 use glam::{IVec3, Vec3};
+
+pub const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
+
+use rayon::prelude::*;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration, pub size: winit::dpi::PhysicalSize<u32>, pub window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32,
+    chunk_buffers: HashMap<IVec3, (wgpu::Buffer, wgpu::Buffer, u32)>,
     depth_texture: texture::Texture,
     camera: camera::Camera, camera_controller: camera::CameraController, camera_uniform: camera::CameraUniform, camera_buffer: wgpu::Buffer, camera_bind_group: wgpu::BindGroup,
     // NUEVO: Grupo de texturas
@@ -26,11 +35,7 @@ impl<'a> State<'a> {
 
         // --- LOAD TEXTURES ---
         // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths: Vec<String> = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
         let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
@@ -91,18 +96,49 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut world = World::new();
+
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                let pos = IVec3::new(cx, 0, cz);
+                let mut chunk = Chunk::new(pos);
+                for x in 0..CHUNK_SIZE {
+                    for z in 0..CHUNK_SIZE {
+                        let global_x = (cx * CHUNK_SIZE as i32 + x as i32) as f32;
+                        let global_z = (cz * CHUNK_SIZE as i32 + z as i32) as f32;
+                        let h = 10 + (global_x.sin() * 5.0 + global_z.cos() * 5.0) as i32;
+                        let h = h.max(1).min(255) as usize;
+
+                        for y in 0..h {
+                            let id = if y == h - 1 { 2 } else { 1 }; // 2=Grass (Top), 1=Dirt (Bottom)
+                            chunk.set_voxel(x, y, z, id);
+                        }
+                    }
+                }
+                world.chunks.insert(pos, chunk);
+            }
+        }
+
+        // Generate meshes in parallel
+        let meshes: Vec<(IVec3, mesher::Mesh)> = world.chunks.values()
+            .par_bridge() // Use rayon
+            .map(|chunk| {
+                (chunk.position, mesher::generate_mesh(chunk))
+            })
+            .collect();
+
+        let mut chunk_buffers = HashMap::new();
+        for (pos, mesh) in meshes {
+            if mesh.indices.is_empty() { continue; }
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
+            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
+            let num_indices = mesh.indices.len() as u32;
+            chunk_buffers.insert(pos, (vertex_buffer, index_buffer, num_indices));
+        }
+
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Self { window, surface, device, queue, config, size, render_pipeline, chunk_buffers, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -128,9 +164,12 @@ impl<'a> State<'a> {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]); // ¡TEXTURAS!
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+            for (vertex_buffer, index_buffer, num_indices) in self.chunk_buffers.values() {
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish())); output.present(); Ok(())
     }
