@@ -1,17 +1,27 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, chunk::{Chunk, CHUNK_SIZE}, texture, camera, world::World};
 use glam::{IVec3, Vec3};
+use std::collections::HashMap;
+use rayon::prelude::*;
+
+pub const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration, pub size: winit::dpi::PhysicalSize<u32>, pub window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32,
+    chunk_meshes: HashMap<IVec3, (wgpu::Buffer, wgpu::Buffer, u32)>,
     depth_texture: texture::Texture,
     camera: camera::Camera, camera_controller: camera::CameraController, camera_uniform: camera::CameraUniform, camera_buffer: wgpu::Buffer, camera_bind_group: wgpu::BindGroup,
     // NUEVO: Grupo de texturas
     diffuse_bind_group: wgpu::BindGroup, 
+    #[allow(dead_code)]
+    world: World,
 }
 
 impl<'a> State<'a> {
@@ -26,11 +36,7 @@ impl<'a> State<'a> {
 
         // --- LOAD TEXTURES ---
         // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect::<Vec<String>>();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
         let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
@@ -91,18 +97,52 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut world = World::new();
+        let mut chunk_meshes = HashMap::new();
+
+        let mut chunk_positions = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunk_positions.push(IVec3::new(cx, 0, cz));
+            }
+        }
+
+        let chunks_and_meshes: Vec<(IVec3, Chunk, mesher::Mesh)> = chunk_positions.into_par_iter().map(|pos| {
+            let mut chunk = Chunk::new(pos);
+            for x in 0..CHUNK_SIZE {
+                for z in 0..CHUNK_SIZE {
+                    let world_x = pos.x as f32 * CHUNK_SIZE as f32 + x as f32;
+                    let world_z = pos.z as f32 * CHUNK_SIZE as f32 + z as f32;
+
+                    // Simple sine wave terrain height
+                    let height = (16.0 + (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0) as usize;
+
+                    for y in 0..height {
+                        let id = if y == height - 1 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+            let mesh = mesher::generate_mesh(&chunk);
+            (pos, chunk, mesh)
+        }).collect();
+
+        for (pos, chunk, mesh) in chunks_and_meshes {
+            if mesh.indices.is_empty() {
+                world.insert_chunk(pos, chunk);
+                continue;
+            }
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
+            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
+            let num_indices = mesh.indices.len() as u32;
+
+            chunk_meshes.insert(pos, (vertex_buffer, index_buffer, num_indices));
+            world.insert_chunk(pos, chunk);
+        }
+
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Self { window, surface, device, queue, config, size, render_pipeline, chunk_meshes, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group, world }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -128,9 +168,12 @@ impl<'a> State<'a> {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]); // ¡TEXTURAS!
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+            for (vertex_buffer, index_buffer, num_indices) in self.chunk_meshes.values() {
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish())); output.present(); Ok(())
     }
