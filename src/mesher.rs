@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
+use crate::chunk::{Chunk, CHUNK_SIZE};
 
 // Derivamos Pod y Zeroable para que bytemuck pueda copiar esto como bytes puros
 #[repr(C)]
