@@ -1,13 +1,13 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, texture, camera};
 use glam::{IVec3, Vec3};
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration, pub size: winit::dpi::PhysicalSize<u32>, pub window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32,
+    chunk_buffers: std::collections::HashMap<IVec3, (wgpu::Buffer, wgpu::Buffer, u32)>,
     depth_texture: texture::Texture,
     camera: camera::Camera, camera_controller: camera::CameraController, camera_uniform: camera::CameraUniform, camera_buffer: wgpu::Buffer, camera_bind_group: wgpu::BindGroup,
     // NUEVO: Grupo de texturas
@@ -91,18 +91,49 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut world = crate::world::World::new();
+        // Generamos un grid 3x3 de chunks (radius = 1)
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                let mut chunk = crate::chunk::Chunk::new(IVec3::new(cx, 0, cz));
+                let chunk_size = crate::chunk::CHUNK_SIZE as f32;
+                for x in 0..crate::chunk::CHUNK_SIZE {
+                    for z in 0..crate::chunk::CHUNK_SIZE {
+                        // Coordenadas globales
+                        let global_x = (cx as f32 * chunk_size) + x as f32;
+                        let global_z = (cz as f32 * chunk_size) + z as f32;
+
+                        // Height mapping con sine waves
+                        let height = 10.0 + (global_x * 0.1).sin() * 5.0 + (global_z * 0.1).cos() * 5.0;
+                        let h = height.max(1.0) as usize; // Asegurar al menos altura 1
+                        let clamp_h = h.min(crate::chunk::CHUNK_HEIGHT - 1);
+
+                        for y in 0..clamp_h {
+                            let id = if y == clamp_h - 1 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                            chunk.set_voxel(x, y, z, id);
+                        }
+                    }
+                }
+                world.chunks.insert(IVec3::new(cx, 0, cz), chunk);
+            }
+        }
+
+        use rayon::prelude::*;
+        let meshes: Vec<(IVec3, mesher::Mesh)> = world.chunks
+            .par_iter()
+            .map(|(pos, chunk)| (*pos, mesher::generate_mesh(chunk)))
+            .collect();
+
+        let mut chunk_buffers = std::collections::HashMap::new();
+        for (pos, mesh) in meshes {
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
+            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
+            chunk_buffers.insert(pos, (vertex_buffer, index_buffer, mesh.indices.len() as u32));
+        }
+
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Self { window, surface, device, queue, config, size, render_pipeline, chunk_buffers, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -128,9 +159,12 @@ impl<'a> State<'a> {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]); // ¡TEXTURAS!
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
+            for (vertex_buffer, index_buffer, num_indices) in self.chunk_buffers.values() {
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish())); output.present(); Ok(())
     }
