@@ -61,8 +61,21 @@ fn main() {
     }
 
     // --- GRAPHICS SETUP ---
-    let event_loop = EventLoop::new().unwrap();
-    let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
+    let event_loop = match EventLoop::new() {
+        Ok(el) => el,
+        Err(e) => {
+            eprintln!("[Rust] Error inicializando EventLoop: {}", e);
+            return;
+        }
+    };
+
+    let window = match WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("[Rust] Error inicializando ventana: {}", e);
+            return;
+        }
+    };
     window.set_cursor_visible(false); // Ocultar ratón para modo FPS
 
     let mut state = pollster::block_on(State::new(&window));

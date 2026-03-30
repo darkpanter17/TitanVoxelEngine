@@ -30,3 +30,26 @@ impl Chunk {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_get_set_voxel() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+
+        // Initial state should be 0 (air)
+        assert_eq!(chunk.get_voxel(0, 0, 0), 0);
+        assert_eq!(chunk.get_voxel(15, 100, 15), 0);
+
+        // Set and get
+        chunk.set_voxel(5, 10, 5, 1);
+        assert_eq!(chunk.get_voxel(5, 10, 5), 1);
+
+        // Out of bounds get should return 0
+        assert_eq!(chunk.get_voxel(CHUNK_SIZE, 0, 0), 0);
+        assert_eq!(chunk.get_voxel(0, CHUNK_HEIGHT, 0), 0);
+        assert_eq!(chunk.get_voxel(0, 0, CHUNK_SIZE), 0);
+    }
+}
