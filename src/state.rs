@@ -91,15 +91,44 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut all_vertices = Vec::new();
+        let mut all_indices = Vec::new();
+        let mut index_offset = 0;
+
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                let mut chunk = Chunk::new(IVec3::new(cx, 0, cz));
+                let world_offset_x = (cx * 32) as f32;
+                let world_offset_z = (cz * 32) as f32;
+
+                for x in 0..32 {
+                    for z in 0..32 {
+                        let wx = world_offset_x + x as f32;
+                        let wz = world_offset_z + z as f32;
+                        // Simple sine wave terrain
+                        let height = (10.0 + (wx * 0.1).sin() * 5.0 + (wz * 0.1).cos() * 5.0) as usize;
+
+                        for y in 0..=height {
+                            let id = if y == height { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                            chunk.set_voxel(x, y, z, id);
+                        }
+                    }
+                }
+                let mesh = mesher::generate_mesh(&chunk);
+
+                let vertex_count = mesh.vertices.len() as u32;
+                all_vertices.extend(mesh.vertices);
+
+                for index in mesh.indices {
+                    all_indices.push(index + index_offset);
+                }
+                index_offset += vertex_count;
+            }
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
