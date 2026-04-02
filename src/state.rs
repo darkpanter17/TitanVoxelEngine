@@ -26,18 +26,19 @@ impl<'a> State<'a> {
 
         // --- LOAD TEXTURES ---
         // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
+        const TEXTURE_PATHS: [&str; 3] = [
+            "assets/textures/1.png", // Dirt
+            "assets/textures/2.png", // Grass
+            "assets/textures/3.png", // Stone
         ];
+        let texture_paths_vec = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect::<Vec<_>>();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
-        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
+        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths_vec.clone()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
-                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
+                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths_vec.len() as u32)
             }
         };
 
@@ -91,15 +92,43 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        use rayon::prelude::*;
+
+        let mut chunks = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                let mut chunk = Chunk::new(IVec3::new(cx, 0, cz));
+                for x in 0..32 {
+                    for z in 0..32 {
+                        let world_x = (cx * 32) as f32 + x as f32;
+                        let world_z = (cz * 32) as f32 + z as f32;
+                        let height = (16.0 + (world_x * 0.1).sin() * 4.0 + (world_z * 0.1).cos() * 4.0) as usize;
+
+                        for y in 0..=height {
+                            // Layer 0 (ID 1) is Dirt, Layer 1 (ID 2) is Grass
+                            let id = if y == height { 2 } else { 1 }; // 2=Grass (Top), 1=Dirt (Bottom)
+                            chunk.set_voxel(x, y, z, id);
+                        }
+                    }
+                }
+                chunks.push(chunk);
+            }
+        }
+
+        let meshes: Vec<_> = chunks.par_iter().map(|c| mesher::generate_mesh(c)).collect();
+
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(&mesh.vertices);
+            all_indices.extend(mesh.indices.iter().map(|&idx| idx + vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }

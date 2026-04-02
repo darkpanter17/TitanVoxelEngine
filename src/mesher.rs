@@ -42,21 +42,108 @@ pub struct Mesh {
 }
 
 // (Mantenemos la lógica de Greedy Meshing igual, solo cambia el Vertex struct arriba)
+// Helper fn to bounds-check and get voxel id
+fn get_voxel_safe(chunk: &Chunk, x: i32, y: i32, z: i32) -> u16 {
+    if x < 0 || x >= CHUNK_SIZE as i32 || y < 0 || y >= CHUNK_HEIGHT as i32 || z < 0 || z >= CHUNK_SIZE as i32 {
+        return 0; // Return air if out of bounds
+    }
+    chunk.get_voxel(x as usize, y as usize, z as usize)
+}
+
 pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut index_count = 0;
     
-    // NOTA: Para este test, simplificamos el loop solo para mostrar geometría rápida
-    // En producción, aquí va tu algoritmo completo del Patch 01.
+    let offset_x = chunk.position.x as f32 * CHUNK_SIZE as f32;
+    let offset_y = chunk.position.y as f32 * CHUNK_HEIGHT as f32;
+    let offset_z = chunk.position.z as f32 * CHUNK_SIZE as f32;
+
     for x in 0..CHUNK_SIZE {
         for z in 0..CHUNK_SIZE {
-            for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
-                    let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
+            for y in 0..CHUNK_HEIGHT {
+                 let voxel = chunk.get_voxel(x, y, z);
+                 if voxel != 0 {
+                    let layer = (voxel - 1) as u32; // Texture layer ID
+                    let xi = x as i32; let yi = y as i32; let zi = z as i32;
+                    let xf = x as f32 + offset_x; let yf = y as f32 + offset_y; let zf = z as f32 + offset_z;
+
+                    // CCW winding order means indices are [0, 1, 2, 2, 3, 0]
+                    // We need vertices to go counter-clockwise when looking at the face from the outside
+                    // The texture atlas is 256x256, containing 16x16 tiles of 16x16 pixels each.
+                    // Block ID 1 = Grass (Tile IDs: Top=32, Bottom=0, Sides=16)
+                    // Block ID 2 = Dirt (Tile IDs: All=0)
+                    // Block ID 3 = Stone (Tile IDs: All=1)
+
+                    // Helper closure to get UVs for a specific tile ID
+                    let get_uvs = |tile_id: u32| -> [[f32; 2]; 4] {
+                        let row = tile_id / 16;
+                        let col = tile_id % 16;
+                        let u_min = col as f32 / 16.0;
+                        let v_min = row as f32 / 16.0;
+                        let u_max = (col + 1) as f32 / 16.0;
+                        let v_max = (row + 1) as f32 / 16.0;
+                        // [BL, BR, TR, TL] -> [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]
+                        // Note that V is flipped in typical OpenGL vs WGPU if we map it like this, but let's test.
+                        // In Fogleman's craft, row 0 is bottom? Or top?
+                        // Let's assume standard [u_min, v_max], [u_max, v_max], [u_max, v_min], [u_min, v_min]
+                        [
+                            [u_min, v_max], // Bottom Left
+                            [u_max, v_max], // Bottom Right
+                            [u_max, v_min], // Top Right
+                            [u_min, v_min], // Top Left
+                        ]
+                    };
+
+                    let (tile_top, tile_bottom, tile_side) = match voxel {
+                        1 => (32, 0, 16), // Grass
+                        2 => (0, 0, 0),   // Dirt
+                        3 => (1, 1, 1),   // Stone
+                        _ => (2, 2, 2),   // Default to some tile
+                    };
+
+                    // Cara Superior (+Y)
+                    if get_voxel_safe(chunk, xi, yi + 1, zi) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count, [
+                            [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0],
+                            [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf]
+                        ], layer, get_uvs(tile_top));
+                    }
+                    // Cara Inferior (-Y)
+                    if get_voxel_safe(chunk, xi, yi - 1, zi) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count, [
+                            [xf, yf, zf], [xf + 1.0, yf, zf],
+                            [xf + 1.0, yf, zf + 1.0], [xf, yf, zf + 1.0]
+                        ], layer, get_uvs(tile_bottom));
+                    }
+                    // Cara Derecha (+X)
+                    if get_voxel_safe(chunk, xi + 1, yi, zi) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count, [
+                            [xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf, zf],
+                            [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf + 1.0, zf + 1.0]
+                        ], layer, get_uvs(tile_side));
+                    }
+                    // Cara Izquierda (-X)
+                    if get_voxel_safe(chunk, xi - 1, yi, zi) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count, [
+                            [xf, yf, zf], [xf, yf, zf + 1.0],
+                            [xf, yf + 1.0, zf + 1.0], [xf, yf + 1.0, zf]
+                        ], layer, get_uvs(tile_side));
+                    }
+                    // Cara Frontal (+Z)
+                    if get_voxel_safe(chunk, xi, yi, zi + 1) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count, [
+                            [xf + 1.0, yf, zf + 1.0], [xf, yf, zf + 1.0],
+                            [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0]
+                        ], layer, get_uvs(tile_side));
+                    }
+                    // Cara Trasera (-Z)
+                    if get_voxel_safe(chunk, xi, yi, zi - 1) == 0 {
+                        push_quad(&mut vertices, &mut indices, &mut index_count, [
+                            [xf, yf, zf], [xf + 1.0, yf, zf],
+                            [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf]
+                        ], layer, get_uvs(tile_side));
+                    }
                  }
             }
         }
@@ -65,11 +152,11 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 }
 
 fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
+             pos: [[f32; 3]; 4], layer: u32, uv: [[f32; 2]; 4]) {
+    verts.push(Vertex { pos: pos[0], uv: uv[0], layer });
+    verts.push(Vertex { pos: pos[1], uv: uv[1], layer });
+    verts.push(Vertex { pos: pos[2], uv: uv[2], layer });
+    verts.push(Vertex { pos: pos[3], uv: uv[3], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
