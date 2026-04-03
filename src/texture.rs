@@ -9,6 +9,12 @@ pub struct Texture {
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+    pub const PLACEHOLDER_COLORS: [[u8; 4]; 3] = [
+        [100, 70, 50, 255],   // marrón (tierra)
+        [80, 140, 60, 255],   // verde (hierba)
+        [120, 120, 120, 255], // gris (piedra)
+    ];
+
     // Crear el Z-Buffer (Profundidad)
     pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
         let size = wgpu::Extent3d {
@@ -56,10 +62,13 @@ impl Texture {
             layers.push(img);
         }
 
+        let num_layers = if paths.len() == 1 { 256 } else { layers.len() as u32 };
+        let (layer_width, layer_height) = if paths.len() == 1 { (16, 16) } else { (width, height) };
+
         let size = wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: layers.len() as u32, // N Capas
+            width: layer_width,
+            height: layer_height,
+            depth_or_array_layers: num_layers, // N Capas
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -74,22 +83,51 @@ impl Texture {
         });
 
         // 2. Copiar bytes a la GPU capa por capa
-        for (i, img) in layers.iter().enumerate() {
-            queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 }, // Z es el índice del array
-                    aspect: wgpu::TextureAspect::All,
-                },
-                img,
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4 * width),
-                    rows_per_image: Some(height),
-                },
-                wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-            );
+        if paths.len() == 1 {
+            // Un solo atlas. Dividir 256x256 en 256 sprites de 16x16.
+            let img = &layers[0];
+            let cols = width / 16;
+
+            for i in 0..256 {
+                let col = i % cols;
+                let row = i / cols;
+
+                let tile = image::imageops::crop_imm(img, col * 16, row * 16, 16, 16).to_image();
+
+                queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &tile,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4 * 16),
+                        rows_per_image: Some(16),
+                    },
+                    wgpu::Extent3d { width: 16, height: 16, depth_or_array_layers: 1 },
+                );
+            }
+        } else {
+            for (i, img) in layers.iter().enumerate() {
+                queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 }, // Z es el índice del array
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    img,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4 * width),
+                        rows_per_image: Some(height),
+                    },
+                    wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                );
+            }
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -129,13 +167,8 @@ impl Texture {
             view_formats: &[],
         });
         // Rellenar cada capa con un color distinto (RGBA 1x1) para distinguir bloques
-        let colors: [[u8; 4]; 3] = [
-            [100, 70, 50, 255],   // marrón (tierra)
-            [80, 140, 60, 255],   // verde (hierba)
-            [120, 120, 120, 255], // gris (piedra)
-        ];
         for i in 0..num_layers.min(3) {
-            let c = colors[i as usize];
+            let c = Self::PLACEHOLDER_COLORS[i as usize];
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
