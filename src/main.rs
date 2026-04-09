@@ -61,13 +61,26 @@ fn main() {
     }
 
     // --- GRAPHICS SETUP ---
-    let event_loop = EventLoop::new().unwrap();
-    let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
+    let event_loop = match EventLoop::new() {
+        Ok(el) => el,
+        Err(e) => {
+            eprintln!("Failed to create EventLoop (headless environment?): {}", e);
+            return;
+        }
+    };
+
+    let window = match WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("Failed to build Window (headless environment?): {}", e);
+            return;
+        }
+    };
     window.set_cursor_visible(false); // Ocultar ratón para modo FPS
 
     let mut state = pollster::block_on(State::new(&window));
 
-    event_loop.run(move |event, elwt| {
+    let _ = event_loop.run(move |event, elwt| {
         match event {
             Event::WindowEvent { ref event, window_id } if window_id == state.window.id() => {
                 if !state.input(event) { 
@@ -93,5 +106,5 @@ fn main() {
             Event::AboutToWait => state.window.request_redraw(),
             _ => {}
         }
-    }).unwrap();
+    });
 }
