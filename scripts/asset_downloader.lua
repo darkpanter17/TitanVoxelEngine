@@ -1,13 +1,12 @@
 print("--- INICIANDO GESTOR DE ASSETS (LUA) ---")
 
 -- Lista de texturas CC0 para pruebas (rama main; si falla, probar master)
-local base = "https://raw.githubusercontent.com/fogleman/Craft/main/textures/"
 local textures = {
-    { name = "dirt",  url = base .. "dirt.png" },
-    { name = "grass", url = base .. "grass.png" },
-    { name = "stone", url = base .. "stone.png" },
-    { name = "sand",  url = base .. "sand.png" },
-    { name = "wood",  url = base .. "wood.png" }
+    { name = "dirt",  url = "https://dummyimage.com/16x16/7B3F00/7B3F00.png" },
+    { name = "grass", url = "https://dummyimage.com/16x16/4C9A2A/4C9A2A.png" },
+    { name = "stone", url = "https://dummyimage.com/16x16/808080/808080.png" },
+    { name = "sand",  url = "https://dummyimage.com/16x16/C2B280/C2B280.png" },
+    { name = "wood",  url = "https://dummyimage.com/16x16/6B4423/6B4423.png" }
 }
 -- Si main no existe, el script puede probar master cambiando base arriba
 
