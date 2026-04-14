@@ -1,7 +1,14 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, chunk::{Chunk, CHUNK_SIZE}, texture, camera};
 use glam::{IVec3, Vec3};
+use rayon::prelude::*;
+
+const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -10,7 +17,6 @@ pub struct State<'a> {
     vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32,
     depth_texture: texture::Texture,
     camera: camera::Camera, camera_controller: camera::CameraController, camera_uniform: camera::CameraUniform, camera_buffer: wgpu::Buffer, camera_bind_group: wgpu::BindGroup,
-    // NUEVO: Grupo de texturas
     diffuse_bind_group: wgpu::BindGroup, 
 }
 
@@ -24,15 +30,8 @@ impl<'a> State<'a> {
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
-        // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths = TEXTURE_PATHS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         
-        // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
         let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
             Ok(t) => t,
             Err(e) => {
@@ -66,7 +65,6 @@ impl<'a> State<'a> {
             label: Some("diffuse_bind_group"),
         });
 
-        // --- CAMERA ---
         let camera = camera::Camera { eye: Vec3::new(-5.0, 10.0, -5.0), target: Vec3::new(1.0, -0.5, 1.0).normalize(), up: Vec3::Y, aspect: config.width as f32 / config.height as f32, fovy: 45.0f32.to_radians(), znear: 0.1, zfar: 1000.0, yaw: -45.0f32.to_radians(), pitch: -20.0f32.to_radians() };
         let mut camera_uniform = camera::CameraUniform::new(); camera_uniform.update_view_proj(&camera);
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Camera Buffer"), contents: bytemuck::cast_slice(&[camera_uniform]), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
@@ -74,11 +72,10 @@ impl<'a> State<'a> {
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor { layout: &camera_bind_group_layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() }], label: Some("camera_bind_group") });
         let camera_controller = camera::CameraController::new(0.2, 0.003);
 
-        // --- PIPELINE ---
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("Shader"), source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/voxel.wgsl").into()) });
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { 
             label: Some("Render Pipeline Layout"), 
-            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout], // 2 Bind Groups
+            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout],
             push_constant_ranges: &[] 
         });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -91,15 +88,42 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut chunks = Vec::new();
+        for cx in 0..3 {
+            for cz in 0..3 {
+                let mut chunk = Chunk::new(IVec3::new(cx, 0, cz));
+                for x in 0..CHUNK_SIZE {
+                    for z in 0..CHUNK_SIZE {
+                        let wx = cx as f32 * CHUNK_SIZE as f32 + x as f32;
+                        let wz = cz as f32 * CHUNK_SIZE as f32 + z as f32;
+                        let height = (wx.sin() * 5.0 + wz.cos() * 5.0 + 10.0) as usize;
+
+                        for y in 0..height {
+                            let id = if y == height - 1 { 2 } else { 1 };
+                            chunk.set_voxel(x, y, z, id);
+                        }
+                    }
+                }
+                chunks.push(chunk);
+            }
+        }
+
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(|chunk| mesher::generate_mesh(chunk)).collect();
+
+        let mut all_vertices: Vec<Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(&mesh.vertices);
+            for idx in mesh.indices {
+                all_indices.push(idx + vertex_count);
+            }
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }

@@ -1,6 +1,8 @@
+#[allow(unused_imports)]
 use image::GenericImageView;
 
 pub struct Texture {
+    #[allow(dead_code)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -8,6 +10,12 @@ pub struct Texture {
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub const PLACEHOLDER_COLORS: [[u8; 4]; 3] = [
+        [100, 70, 50, 255],   // marrón (tierra)
+        [80, 140, 60, 255],   // verde (hierba)
+        [120, 120, 120, 255], // gris (piedra)
+    ];
 
     // Crear el Z-Buffer (Profundidad)
     pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
@@ -129,13 +137,8 @@ impl Texture {
             view_formats: &[],
         });
         // Rellenar cada capa con un color distinto (RGBA 1x1) para distinguir bloques
-        let colors: [[u8; 4]; 3] = [
-            [100, 70, 50, 255],   // marrón (tierra)
-            [80, 140, 60, 255],   // verde (hierba)
-            [120, 120, 120, 255], // gris (piedra)
-        ];
         for i in 0..num_layers.min(3) {
-            let c = colors[i as usize];
+            let c = Self::PLACEHOLDER_COLORS[i as usize];
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
