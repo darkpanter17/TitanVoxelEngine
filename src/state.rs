@@ -1,16 +1,34 @@
-use winit::{event::*, window::Window};
+use winit::{event::WindowEvent, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
-use glam::{IVec3, Vec3};
+use glam::{Vec3, IVec3};
+use crate::camera;
+use crate::chunk::Chunk;
+use crate::mesher::{self, Vertex};
+use crate::texture;
+
+const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt (Layer 0, Block ID 1)
+    "assets/textures/2.png", // Grass (Layer 1, Block ID 2)
+    "assets/textures/3.png", // Stone (Layer 2, Block ID 3)
+];
 
 pub struct State<'a> {
-    pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
-    pub config: wgpu::SurfaceConfiguration, pub size: winit::dpi::PhysicalSize<u32>, pub window: &'a Window,
+    pub window: &'a Window,
+    surface: wgpu::Surface<'a>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
     depth_texture: texture::Texture,
-    camera: camera::Camera, camera_controller: camera::CameraController, camera_uniform: camera::CameraUniform, camera_buffer: wgpu::Buffer, camera_bind_group: wgpu::BindGroup,
-    // NUEVO: Grupo de texturas
+    camera: camera::Camera,
+    camera_controller: camera::CameraController,
+    camera_uniform: camera::CameraUniform,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
     diffuse_bind_group: wgpu::BindGroup, 
 }
 
@@ -24,20 +42,13 @@ impl<'a> State<'a> {
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
-        // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths_vec = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect::<Vec<String>>();
         
-        // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
-        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
+        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths_vec.clone()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
-                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
+                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths_vec.len() as u32)
             }
         };
 
@@ -67,18 +78,18 @@ impl<'a> State<'a> {
         });
 
         // --- CAMERA ---
-        let camera = camera::Camera { eye: Vec3::new(-5.0, 10.0, -5.0), target: Vec3::new(1.0, -0.5, 1.0).normalize(), up: Vec3::Y, aspect: config.width as f32 / config.height as f32, fovy: 45.0f32.to_radians(), znear: 0.1, zfar: 1000.0, yaw: -45.0f32.to_radians(), pitch: -20.0f32.to_radians() };
+        let camera = camera::Camera { eye: Vec3::new(48.0, 50.0, 48.0), target: Vec3::new(-1.0, -0.5, -1.0).normalize(), up: Vec3::Y, aspect: config.width as f32 / config.height as f32, fovy: 45.0f32.to_radians(), znear: 0.1, zfar: 1000.0, yaw: -135.0f32.to_radians(), pitch: -20.0f32.to_radians() };
         let mut camera_uniform = camera::CameraUniform::new(); camera_uniform.update_view_proj(&camera);
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Camera Buffer"), contents: bytemuck::cast_slice(&[camera_uniform]), usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST });
         let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { entries: &[wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::VERTEX, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None }], label: Some("camera_bind_group_layout") });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor { layout: &camera_bind_group_layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() }], label: Some("camera_bind_group") });
-        let camera_controller = camera::CameraController::new(0.2, 0.003);
+        let camera_controller = camera::CameraController::new(0.5, 0.003);
 
         // --- PIPELINE ---
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("Shader"), source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/voxel.wgsl").into()) });
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { 
             label: Some("Render Pipeline Layout"), 
-            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout], // 2 Bind Groups
+            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout],
             push_constant_ranges: &[] 
         });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -91,15 +102,39 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut all_vertices = Vec::new();
+        let mut all_indices = Vec::new();
+
+        for cx in 0..3 {
+            for cz in 0..3 {
+                let mut chunk = Chunk::new(IVec3::new(cx, 0, cz));
+                for x in 0..32 {
+                    for z in 0..32 {
+                        let global_x = (cx * 32 + x) as f32;
+                        let global_z = (cz * 32 + z) as f32;
+
+                        let h = (global_x * 0.1).sin() * 5.0 + (global_z * 0.1).cos() * 5.0 + 20.0;
+                        let max_y = h as usize;
+
+                        for y in 0..=max_y {
+                            let id = if y == max_y { 2 } else { 1 };
+                            chunk.set_voxel(x as usize, y, z as usize, id);
+                        }
+                    }
+                }
+                let mesh = mesher::generate_mesh(&chunk);
+
+                let vertex_count = all_vertices.len() as u32;
+                all_vertices.extend(mesh.vertices);
+                for i in mesh.indices {
+                    all_indices.push(i + vertex_count);
+                }
+            }
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
