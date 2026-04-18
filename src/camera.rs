@@ -1,6 +1,8 @@
 use winit::event::*;
 use winit::keyboard::{KeyCode, PhysicalKey};
-use glam::{Vec3, Mat4, Quat};
+use glam::{Vec3, Mat4};
+#[allow(unused_imports)]
+use glam::Quat;
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols_array(&[
