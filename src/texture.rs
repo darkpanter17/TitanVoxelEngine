@@ -1,5 +1,7 @@
+#[allow(unused_imports)]
 use image::GenericImageView;
 
+#[allow(dead_code)]
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,

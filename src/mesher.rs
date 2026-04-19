@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
 
 // Derivamos Pod y Zeroable para que bytemuck pueda copiar esto como bytes puros
@@ -47,29 +48,131 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let mut indices = Vec::new();
     let mut index_count = 0;
     
-    // NOTA: Para este test, simplificamos el loop solo para mostrar geometría rápida
-    // En producción, aquí va tu algoritmo completo del Patch 01.
+    let chunk_x_offset = (chunk.position.x * CHUNK_SIZE as i32) as f32;
+    let chunk_y_offset = (chunk.position.y * CHUNK_HEIGHT as i32) as f32;
+    let chunk_z_offset = (chunk.position.z * CHUNK_SIZE as i32) as f32;
+
     for x in 0..CHUNK_SIZE {
-        for z in 0..CHUNK_SIZE {
-            for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
-                    let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
-                 }
+        for y in 0..CHUNK_HEIGHT {
+            for z in 0..CHUNK_SIZE {
+                let voxel_id = chunk.get_voxel(x, y, z);
+                if voxel_id == 0 {
+                    continue;
+                }
+
+                let layer = (voxel_id - 1) as u32;
+
+                let ix = x as i32;
+                let iy = y as i32;
+                let iz = z as i32;
+
+                let fx = x as f32 + chunk_x_offset;
+                let fy = y as f32 + chunk_y_offset;
+                let fz = z as f32 + chunk_z_offset;
+
+                // Face directions: Top (+Y), Bottom (-Y), Front (+Z), Back (-Z), Right (+X), Left (-X)
+
+                // Top (+Y)
+                if chunk.get_voxel_safe(ix, iy + 1, iz) == 0 {
+                    push_face(
+                        &mut vertices, &mut indices, &mut index_count,
+                        [
+                            [fx, fy + 1.0, fz + 1.0], // Top-left
+                            [fx + 1.0, fy + 1.0, fz + 1.0], // Top-right
+                            [fx + 1.0, fy + 1.0, fz], // Bottom-right
+                            [fx, fy + 1.0, fz]  // Bottom-left
+                        ],
+                        layer
+                    );
+                }
+
+                // Bottom (-Y)
+                if chunk.get_voxel_safe(ix, iy - 1, iz) == 0 {
+                    push_face(
+                        &mut vertices, &mut indices, &mut index_count,
+                        [
+                            [fx, fy, fz], // Top-left
+                            [fx + 1.0, fy, fz], // Top-right
+                            [fx + 1.0, fy, fz + 1.0], // Bottom-right
+                            [fx, fy, fz + 1.0]  // Bottom-left
+                        ],
+                        layer
+                    );
+                }
+
+                // Front (+Z)
+                if chunk.get_voxel_safe(ix, iy, iz + 1) == 0 {
+                    push_face(
+                        &mut vertices, &mut indices, &mut index_count,
+                        [
+                            [fx, fy + 1.0, fz + 1.0], // Top-left
+                            [fx, fy, fz + 1.0], // Bottom-left
+                            [fx + 1.0, fy, fz + 1.0], // Bottom-right
+                            [fx + 1.0, fy + 1.0, fz + 1.0]  // Top-right
+                        ],
+                        layer
+                    );
+                }
+
+                // Back (-Z)
+                if chunk.get_voxel_safe(ix, iy, iz - 1) == 0 {
+                    push_face(
+                        &mut vertices, &mut indices, &mut index_count,
+                        [
+                            [fx + 1.0, fy + 1.0, fz], // Top-left
+                            [fx + 1.0, fy, fz], // Bottom-left
+                            [fx, fy, fz], // Bottom-right
+                            [fx, fy + 1.0, fz]  // Top-right
+                        ],
+                        layer
+                    );
+                }
+
+                // Right (+X)
+                if chunk.get_voxel_safe(ix + 1, iy, iz) == 0 {
+                    push_face(
+                        &mut vertices, &mut indices, &mut index_count,
+                        [
+                            [fx + 1.0, fy + 1.0, fz + 1.0], // Top-left
+                            [fx + 1.0, fy, fz + 1.0], // Bottom-left
+                            [fx + 1.0, fy, fz], // Bottom-right
+                            [fx + 1.0, fy + 1.0, fz]  // Top-right
+                        ],
+                        layer
+                    );
+                }
+
+                // Left (-X)
+                if chunk.get_voxel_safe(ix - 1, iy, iz) == 0 {
+                    push_face(
+                        &mut vertices, &mut indices, &mut index_count,
+                        [
+                            [fx, fy + 1.0, fz], // Top-left
+                            [fx, fy, fz], // Bottom-left
+                            [fx, fy, fz + 1.0], // Bottom-right
+                            [fx, fy + 1.0, fz + 1.0]  // Top-right
+                        ],
+                        layer
+                    );
+                }
             }
         }
     }
     Mesh { vertices, indices }
 }
 
-fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
+fn push_face(
+    verts: &mut Vec<Vertex>,
+    inds: &mut Vec<u32>,
+    count: &mut u32,
+    positions: [[f32; 3]; 4],
+    layer: u32
+) {
+    verts.push(Vertex { pos: positions[0], uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: positions[1], uv: [0.0, 1.0], layer });
+    verts.push(Vertex { pos: positions[2], uv: [1.0, 1.0], layer });
+    verts.push(Vertex { pos: positions[3], uv: [1.0, 0.0], layer });
+
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }

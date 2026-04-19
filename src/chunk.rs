@@ -3,6 +3,7 @@ use glam::IVec3;
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_HEIGHT: usize = 256;
 
+#[allow(dead_code)]
 pub struct Chunk {
     pub position: IVec3,
     // Array plano es 10x más rápido que Vec<Vec<Vec>>>
@@ -22,6 +23,17 @@ impl Chunk {
     pub fn get_voxel(&self, x: usize, y: usize, z: usize) -> u16 {
         if x >= CHUNK_SIZE || y >= CHUNK_HEIGHT || z >= CHUNK_SIZE { return 0; }
         self.data[x + (z * CHUNK_SIZE) + (y * CHUNK_SIZE * CHUNK_SIZE)]
+    }
+
+    #[inline(always)]
+    pub fn get_voxel_safe(&self, x: i32, y: i32, z: i32) -> u16 {
+        if x < 0 || y < 0 || z < 0 ||
+           x >= CHUNK_SIZE as i32 ||
+           y >= CHUNK_HEIGHT as i32 ||
+           z >= CHUNK_SIZE as i32 {
+            return 0;
+        }
+        self.get_voxel(x as usize, y as usize, z as usize)
     }
 
     pub fn set_voxel(&mut self, x: usize, y: usize, z: usize, id: u16) {
