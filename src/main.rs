@@ -1,4 +1,4 @@
-mod chunk; mod mesher; mod texture; mod shader_loader; mod state; mod camera;
+mod chunk; mod mesher; mod texture; mod state; mod camera;
 
 use winit::{event::*, event_loop::EventLoop, window::WindowBuilder};
 use state::State;
@@ -65,7 +65,13 @@ fn main() {
     let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
     window.set_cursor_visible(false); // Ocultar ratón para modo FPS
 
-    let mut state = pollster::block_on(State::new(&window));
+    let mut state = match pollster::block_on(State::new(&window)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error inicializando estado: {:?}", e);
+            std::process::exit(1);
+        }
+    };
 
     event_loop.run(move |event, elwt| {
         match event {
