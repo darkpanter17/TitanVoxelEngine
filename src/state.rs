@@ -91,15 +91,43 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        use rayon::prelude::*;
+
+        // Generamos un grid de 3x3 chunks usando rayon para paralelismo
+        let mut chunks: Vec<Chunk> = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunks.push(Chunk::new(IVec3::new(cx, 0, cz)));
+            }
+        }
+
+        chunks.par_iter_mut().for_each(|chunk| {
+            for x in 0..32 {
+                for z in 0..32 {
+                    let world_x = chunk.position.x as f32 * 32.0 + x as f32;
+                    let world_z = chunk.position.z as f32 * 32.0 + z as f32;
+                    let height = (10.0 + (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0) as usize;
+                    for y in 0..16.max(height) {
+                        let id = if y == 16.max(height) - 1 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        let meshes: Vec<_> = chunks.par_iter().map(|c| mesher::generate_mesh(c)).collect();
+
+        let mut all_vertices = Vec::new();
+        let mut all_indices = Vec::new();
+        for mesh in meshes {
+            let offset = all_vertices.len() as u32;
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(mesh.indices.iter().map(|i| i + offset));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
