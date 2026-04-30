@@ -2,6 +2,7 @@ use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
 use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
 use glam::{IVec3, Vec3};
+use rayon::prelude::*;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -91,15 +92,46 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut chunks = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunks.push(Chunk::new(IVec3::new(cx, 0, cz)));
+            }
+        }
+
+        // Initialize voxels in parallel
+        chunks.par_iter_mut().for_each(|chunk| {
+            for x in 0..32 {
+                for z in 0..32 {
+                    // Simple terrain generation using sine waves
+                    let world_x = chunk.position.x as f32 * 32.0 + x as f32;
+                    let world_z = chunk.position.z as f32 * 32.0 + z as f32;
+                    let height = (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0 + 10.0;
+                    let height_usize = height as usize;
+
+                    for y in 0..=height_usize {
+                        let id = if y == height_usize { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        // Generate meshes in parallel
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(|c| mesher::generate_mesh(c)).collect();
+
+        let mut all_vertices = Vec::new();
+        let mut all_indices = Vec::new();
+
+        for mesh in meshes {
+            let vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(mesh.indices.iter().map(|&idx| idx + vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
