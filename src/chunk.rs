@@ -4,6 +4,7 @@ pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_HEIGHT: usize = 256;
 
 pub struct Chunk {
+    #[allow(dead_code)]
     pub position: IVec3,
     // Array plano es 10x más rápido que Vec<Vec<Vec>>>
     pub data: Box<[u16; CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE]>,
@@ -28,5 +29,19 @@ impl Chunk {
         if x < CHUNK_SIZE && y < CHUNK_HEIGHT && z < CHUNK_SIZE {
             self.data[x + (z * CHUNK_SIZE) + (y * CHUNK_SIZE * CHUNK_SIZE)] = id;
         }
+    }
+
+    #[inline(always)]
+    pub fn get_voxel_safe(&self, x: i32, y: i32, z: i32) -> u16 {
+        if x < 0 || y < 0 || z < 0 {
+            return 0;
+        }
+        let xu = x as usize;
+        let yu = y as usize;
+        let zu = z as usize;
+        if xu >= CHUNK_SIZE || yu >= CHUNK_HEIGHT || zu >= CHUNK_SIZE {
+            return 0;
+        }
+        self.data[xu + (zu * CHUNK_SIZE) + (yu * CHUNK_SIZE * CHUNK_SIZE)]
     }
 }
