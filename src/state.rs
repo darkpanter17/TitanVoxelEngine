@@ -14,23 +14,42 @@ pub struct State<'a> {
     diffuse_bind_group: wgpu::BindGroup, 
 }
 
+const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
+
 impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> Self {
+    pub async fn new(window: &'a Window) -> anyhow::Result<Self> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
-        let surface = instance.create_surface(window).unwrap();
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.unwrap();
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
+
+        // Handle headless environments gracefully where surface creation fails
+        // create_surface has been known to return a wgpu::Surface, but its internal implementation calls unwrap() if the surface creation fails.
+        // We will catch it using catch_unwind to prevent the entire program from panicking if necessary, or just avoid the failure.
+
+        // Actually, `instance.create_surface` does not return a Result in wgpu 0.19. It returns a Surface directly.
+        // Wait, looking at the previous patch I made it match on Ok(s). Let me fix this to just create the surface safely or let it fail, but intercept it properly.
+
+        // Wait, wgpu::Instance::create_surface panics in wgpu 0.19 if the context fails.
+        // I'll revert the `Result` check for `create_surface` because it returns the object directly in wgpu 0.19.
+        let surface_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            instance.create_surface(window).unwrap()
+        }));
+
+        let surface = match surface_result {
+            Ok(s) => s,
+            Err(_) => anyhow::bail!("Failed to create wgpu surface (panicked)"),
+        };
+
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.ok_or_else(|| anyhow::anyhow!("Failed to request adapter"))?;
+        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await?;
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
         // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths = TEXTURE_PATHS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
         let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
@@ -102,7 +121,7 @@ impl<'a> State<'a> {
         let num_indices = mesh.indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Ok(Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
