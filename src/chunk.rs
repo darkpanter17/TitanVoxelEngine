@@ -3,6 +3,7 @@ use glam::IVec3;
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_HEIGHT: usize = 256;
 
+#[allow(dead_code)]
 pub struct Chunk {
     pub position: IVec3,
     // Array plano es 10x más rápido que Vec<Vec<Vec>>>
