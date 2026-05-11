@@ -1,10 +1,20 @@
+#[allow(unused_imports)]
 use image::GenericImageView;
 
 pub struct Texture {
+    #[allow(dead_code)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
+
+pub const PLACEHOLDER_COLORS: [[u8; 4]; 5] = [
+    [100, 70, 50, 255],   // Dirt
+    [80, 140, 60, 255],   // Grass
+    [120, 120, 120, 255], // Stone
+    [210, 180, 140, 255], // Sand
+    [139, 90, 43, 255],   // Wood
+];
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -129,31 +139,13 @@ impl Texture {
             view_formats: &[],
         });
         // Rellenar cada capa con un color distinto (RGBA 1x1) para distinguir bloques
-        let colors: [[u8; 4]; 3] = [
-            [100, 70, 50, 255],   // marrón (tierra)
-            [80, 140, 60, 255],   // verde (hierba)
-            [120, 120, 120, 255], // gris (piedra)
-        ];
-        for i in 0..num_layers.min(3) {
-            let c = colors[i as usize];
-            queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &c,
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4),
-                    rows_per_image: Some(1),
-                },
-                wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            );
-        }
-        for i in 3..num_layers {
-            let c: [u8; 4] = [80, 80, 80, 255];
+        for i in 0..num_layers {
+            let c = if i < PLACEHOLDER_COLORS.len() as u32 {
+                PLACEHOLDER_COLORS[i as usize]
+            } else {
+                [80, 80, 80, 255]
+            };
+
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
