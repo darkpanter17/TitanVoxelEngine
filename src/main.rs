@@ -65,7 +65,7 @@ fn main() {
     let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
     window.set_cursor_visible(false); // Ocultar ratón para modo FPS
 
-    let mut state = pollster::block_on(State::new(&window));
+    let mut state = pollster::block_on(State::new(&window)).unwrap();
 
     event_loop.run(move |event, elwt| {
         match event {
