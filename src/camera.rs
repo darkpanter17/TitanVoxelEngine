@@ -1,5 +1,6 @@
 use winit::event::*;
 use winit::keyboard::{KeyCode, PhysicalKey};
+#[allow(unused_imports)]
 use glam::{Vec3, Mat4, Quat};
 
 #[rustfmt::skip]
