@@ -41,35 +41,67 @@ pub struct Mesh {
     pub indices: Vec<u32>,
 }
 
-// (Mantenemos la lógica de Greedy Meshing igual, solo cambia el Vertex struct arriba)
 pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut index_count = 0;
     
-    // NOTA: Para este test, simplificamos el loop solo para mostrar geometría rápida
-    // En producción, aquí va tu algoritmo completo del Patch 01.
+    let ox = (chunk.position.x * CHUNK_SIZE as i32) as f32;
+    let oy = (chunk.position.y * CHUNK_HEIGHT as i32) as f32;
+    let oz = (chunk.position.z * CHUNK_SIZE as i32) as f32;
+
     for x in 0..CHUNK_SIZE {
         for z in 0..CHUNK_SIZE {
-            for y in 0..100 { // Dibujamos hasta altura 100
-                 if chunk.get_voxel(x, y, z) != 0 {
-                    // Generar cubo simple si hay voxel (Placeholder para test gráfico)
-                    // Cara Superior
-                    let xf = x as f32; let yf = y as f32; let zf = z as f32;
-                    push_quad(&mut vertices, &mut indices, &mut index_count, xf, yf+1.0, zf, 1.0, 1.0, chunk.get_voxel(x,y,z) as u32);
-                 }
+            for y in 0..CHUNK_HEIGHT {
+                let voxel = chunk.get_voxel(x, y, z);
+                if voxel != 0 {
+                    let layer = voxel as u32 - 1; // Block ID 1 maps to layer 0
+                    let xi = x as i32; let yi = y as i32; let zi = z as i32;
+                    let xf = x as f32 + ox; let yf = y as f32 + oy; let zf = z as f32 + oz;
+
+                    // Cara Superior (Y+)
+                    if chunk.get_voxel_safe(xi, yi + 1, zi) == 0 {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [[xf, yf+1.0, zf], [xf, yf+1.0, zf+1.0], [xf+1.0, yf+1.0, zf+1.0], [xf+1.0, yf+1.0, zf]], layer);
+                    }
+                    // Cara Inferior (Y-)
+                    if chunk.get_voxel_safe(xi, yi - 1, zi) == 0 {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [[xf, yf, zf], [xf+1.0, yf, zf], [xf+1.0, yf, zf+1.0], [xf, yf, zf+1.0]], layer);
+                    }
+                    // Cara Izquierda (X-)
+                    if chunk.get_voxel_safe(xi - 1, yi, zi) == 0 {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [[xf, yf, zf], [xf, yf, zf+1.0], [xf, yf+1.0, zf+1.0], [xf, yf+1.0, zf]], layer);
+                    }
+                    // Cara Derecha (X+)
+                    if chunk.get_voxel_safe(xi + 1, yi, zi) == 0 {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [[xf+1.0, yf, zf+1.0], [xf+1.0, yf, zf], [xf+1.0, yf+1.0, zf], [xf+1.0, yf+1.0, zf+1.0]], layer);
+                    }
+                    // Cara Frontal (Z+)
+                    if chunk.get_voxel_safe(xi, yi, zi + 1) == 0 {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [[xf, yf, zf+1.0], [xf+1.0, yf, zf+1.0], [xf+1.0, yf+1.0, zf+1.0], [xf, yf+1.0, zf+1.0]], layer);
+                    }
+                    // Cara Trasera (Z-)
+                    if chunk.get_voxel_safe(xi, yi, zi - 1) == 0 {
+                        push_face(&mut vertices, &mut indices, &mut index_count,
+                            [[xf+1.0, yf, zf], [xf, yf, zf], [xf, yf+1.0, zf], [xf+1.0, yf+1.0, zf]], layer);
+                    }
+                }
             }
         }
     }
     Mesh { vertices, indices }
 }
 
-fn push_quad(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32, 
-             x: f32, y: f32, z: f32, w: f32, d: f32, layer: u32) {
-    verts.push(Vertex { pos: [x, y, z], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z], uv: [w, 0.0], layer });
-    verts.push(Vertex { pos: [x+w, y, z+d], uv: [w, d], layer });
-    verts.push(Vertex { pos: [x, y, z+d], uv: [0.0, d], layer });
+fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
+             positions: [[f32; 3]; 4], layer: u32) {
+    verts.push(Vertex { pos: positions[0], uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: positions[1], uv: [1.0, 0.0], layer });
+    verts.push(Vertex { pos: positions[2], uv: [1.0, 1.0], layer });
+    verts.push(Vertex { pos: positions[3], uv: [0.0, 1.0], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
