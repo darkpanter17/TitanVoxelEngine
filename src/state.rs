@@ -14,30 +14,31 @@ pub struct State<'a> {
     diffuse_bind_group: wgpu::BindGroup, 
 }
 
+const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
+
 impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> Self {
+    pub async fn new(window: &'a Window) -> anyhow::Result<Self> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
-        let surface = instance.create_surface(window).unwrap();
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.unwrap();
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
-        let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
+        let surface = instance.create_surface(window)?;
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.ok_or_else(|| anyhow::anyhow!("No adapter found"))?;
+        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await?;
+        let config = surface.get_default_config(&adapter, size.width, size.height).ok_or_else(|| anyhow::anyhow!("No default config"))?;
         surface.configure(&device, &config);
 
         // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        let texture_paths_vec = TEXTURE_PATHS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
-        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
+        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths_vec.clone()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
-                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
+                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths_vec.len() as u32)
             }
         };
 
@@ -91,18 +92,38 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut all_vertices = Vec::new();
+        let mut all_indices = Vec::new();
+
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                let mut chunk = Chunk::new(IVec3::new(cx, 0, cz));
+                for x in 0..32 {
+                    for z in 0..32 {
+                        // Altura basada en una onda senoidal
+                        let world_x = (cx * 32) as f32 + x as f32;
+                        let world_z = (cz * 32) as f32 + z as f32;
+                        let height = 10 + ((world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0) as isize;
+
+                        for y in 0..=height {
+                            let id = if y == height { 2 } else { 1 }; // 2=Grass (Top), 1=Dirt (Bottom)
+                            chunk.set_voxel(x, y as usize, z, id);
+                        }
+                    }
+                }
+                let mesh = mesher::generate_mesh(&chunk);
+                let vertex_count = all_vertices.len() as u32;
+                all_vertices.extend(mesh.vertices);
+                all_indices.extend(mesh.indices.into_iter().map(|i| i + vertex_count));
+            }
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Ok(Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
