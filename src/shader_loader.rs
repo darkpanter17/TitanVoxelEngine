@@ -1,6 +1,9 @@
+#[allow(unused_imports)]
 use std::fs;
+#[allow(unused_imports)]
 use std::io;
 
+#[allow(dead_code)]
 pub fn load_shaders() -> io::Result<()> {
     // Simplemente verificamos que los archivos existan y sean legibles
     let vert_src = fs::read_to_string("shaders/voxel.vert")?;
