@@ -1,23 +1,18 @@
 print("--- INICIANDO GESTOR DE ASSETS (LUA) ---")
 
--- Lista de texturas CC0 para pruebas (rama main; si falla, probar master)
-local base = "https://raw.githubusercontent.com/fogleman/Craft/main/textures/"
+-- Usando dummyimage.com para evitar errores 404
 local textures = {
-    { name = "dirt",  url = base .. "dirt.png" },
-    { name = "grass", url = base .. "grass.png" },
-    { name = "stone", url = base .. "stone.png" },
-    { name = "sand",  url = base .. "sand.png" },
-    { name = "wood",  url = base .. "wood.png" }
+    { name = "dirt",  url = "https://dummyimage.com/16x16/8b4513/fff.png&text=Dirt" },
+    { name = "grass", url = "https://dummyimage.com/16x16/228b22/fff.png&text=Grass" },
+    { name = "stone", url = "https://dummyimage.com/16x16/808080/fff.png&text=Stone" },
+    { name = "sand",  url = "https://dummyimage.com/16x16/f4a460/fff.png&text=Sand" },
+    { name = "wood",  url = "https://dummyimage.com/16x16/deb887/fff.png&text=Wood" }
 }
--- Si main no existe, el script puede probar master cambiando base arriba
 
--- Crear directorio si no existe (Rust lo maneja, pero por orden lógico)
--- Iterar y descargar
 for i, tex in ipairs(textures) do
     local filename = "assets/textures/" .. i .. ".png" 
     print("Descargando textura [" .. tex.name .. "] desde: " .. tex.url)
     
-    -- Llamada a la función Rust expuesta
     local success = download_file(tex.url, filename)
     
     if success then
