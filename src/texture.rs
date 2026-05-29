@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use image::GenericImageView;
 
 pub struct Texture {

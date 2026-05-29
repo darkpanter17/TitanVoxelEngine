@@ -1,30 +1,28 @@
-print("--- INICIANDO GESTOR DE ASSETS (LUA) ---")
+print("--- STARTING ASSET MANAGER (LUA) ---")
 
--- Lista de texturas CC0 para pruebas (rama main; si falla, probar master)
-local base = "https://raw.githubusercontent.com/fogleman/Craft/main/textures/"
+-- List of dummy textures to prevent 404 errors
 local textures = {
-    { name = "dirt",  url = base .. "dirt.png" },
-    { name = "grass", url = base .. "grass.png" },
-    { name = "stone", url = base .. "stone.png" },
-    { name = "sand",  url = base .. "sand.png" },
-    { name = "wood",  url = base .. "wood.png" }
+    { name = "dirt",  url = "https://dummyimage.com/256x256/8B4513/ffffff.png&text=Dirt" },
+    { name = "grass", url = "https://dummyimage.com/256x256/008000/ffffff.png&text=Grass" },
+    { name = "stone", url = "https://dummyimage.com/256x256/808080/ffffff.png&text=Stone" },
+    { name = "sand",  url = "https://dummyimage.com/256x256/F4A460/ffffff.png&text=Sand" },
+    { name = "wood",  url = "https://dummyimage.com/256x256/D2B48C/ffffff.png&text=Wood" }
 }
--- Si main no existe, el script puede probar master cambiando base arriba
 
--- Crear directorio si no existe (Rust lo maneja, pero por orden lógico)
--- Iterar y descargar
+-- Create directory if it doesn't exist (Rust handles this, but here for logical flow)
+-- Iterate and download
 for i, tex in ipairs(textures) do
     local filename = "assets/textures/" .. i .. ".png" 
-    print("Descargando textura [" .. tex.name .. "] desde: " .. tex.url)
+    print("Downloading texture [" .. tex.name .. "] from: " .. tex.url)
     
-    -- Llamada a la función Rust expuesta
+    -- Call to the exposed Rust function
     local success = download_file(tex.url, filename)
     
     if success then
-        print("  -> Guardado en: " .. filename)
+        print("  -> Saved to: " .. filename)
     else
-        print("  -> ERROR al descargar " .. tex.name)
+        print("  -> ERROR downloading " .. tex.name)
     end
 end
 
-print("--- DESCARGA COMPLETA ---")
+print("--- DOWNLOAD COMPLETE ---")

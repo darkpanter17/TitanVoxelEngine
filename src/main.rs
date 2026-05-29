@@ -63,9 +63,15 @@ fn main() {
     // --- GRAPHICS SETUP ---
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
-    window.set_cursor_visible(false); // Ocultar ratón para modo FPS
+    window.set_cursor_visible(false); // Hide cursor for FPS mode
 
-    let mut state = pollster::block_on(State::new(&window));
+    let mut state = match pollster::block_on(State::new(&window)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to initialize state: {:?}", e);
+            return;
+        }
+    };
 
     event_loop.run(move |event, elwt| {
         match event {
