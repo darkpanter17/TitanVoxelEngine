@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use winit::event::*;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use glam::{Vec3, Mat4, Quat};
