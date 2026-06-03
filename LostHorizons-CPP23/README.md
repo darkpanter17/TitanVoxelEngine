@@ -1,30 +1,48 @@
-# Lost Horizons C++23 — Voxel Engine (v0.1.0)
+# Lost Horizons C++23 — Voxel Engine (v0.2.0)
 
-First milestone of the **Lost Horizons** voxel engine, rewritten in **modern
-C++23** with **Vulkan**. This version delivers the foundation the roadmap calls
-for: the **engine core**, its **renderer**, and a **window**.
+The **Lost Horizons** voxel engine, written in **modern C++23** with **Vulkan**.
+v0.1.0 delivered the foundation (engine core, renderer, window). **v0.2.0** adds
+a **free-fly camera**, **frustum culling** and **smoother procedural terrain**.
 
 > The original game design documents referenced a Godot/Python prototype. The
 > production engine targets **C++23 + Vulkan** (see `BUILD_INSTRUCTIONS`,
 > `VERSION_0.2.0`, `PRESENTATION` design docs). This repository implements that
 > C++23 engine from the ground up.
 
-![Voxel terrain rendered by v0.1.0](docs/screenshot.png)
+![Voxel terrain rendered by the engine](docs/screenshot.png)
 
-## What's in v0.1.0
+## What's in v0.2.0
 
 | Area | Implemented |
 |------|-------------|
-| **Window** | GLFW window configured for Vulkan, resize handling |
+| **Camera** | Free-fly FPS camera: WASD + Q/E, Shift/Ctrl speed, mouse look, scroll zoom, smoothed velocity (auto-orbit retained for headless runs) |
+| **Frustum culling** | Per-chunk AABB vs 6-plane view-frustum test; off-screen chunks are skipped each frame |
+| **Terrain** | Smoother rolling hills: 5-octave fBm, box-filtered height field, smoothstep rounding, water/sand/snow bands |
+
+### Inherited from v0.1.0
+
+| Area | Implemented |
+|------|-------------|
+| **Window** | GLFW window configured for Vulkan, resize handling, input |
 | **Renderer** | Full Vulkan pipeline: instance, device, swapchain, depth buffer, render pass, graphics pipeline, command buffers, synchronization, frames-in-flight |
 | **Engine core** | Main loop, timing/FPS, EnTT ECS registry (one entity per chunk) |
 | **Voxel world** | Dense chunk storage, procedural fractal-noise terrain, materials (stone/dirt/grass/sand/water/snow) |
 | **Meshing** | Face-culled CPU mesher → device-local GPU vertex/index buffers |
-| **Camera** | Auto-orbit camera (WASD/mouse controller arrives in v0.2.0) |
 | **Shaders** | GLSL → SPIR-V, directional lighting + ambient + distance fog |
 
-This matches the documented **v0.1.0** scope (engine + rendering + window). LOD,
-frustum culling, free-fly camera and the ImGui debug UI are planned for v0.2.0.
+## Controls (interactive run)
+
+| Input | Action |
+|-------|--------|
+| `W` / `A` / `S` / `D` | Move forward / left / back / right |
+| `E` / `Q` | Move up / down |
+| `Shift` / `Ctrl` | Fast (4×) / slow (0.25×) movement |
+| Mouse | Look around |
+| Scroll | Zoom (FOV) |
+| `ESC` | Release / re-capture the cursor |
+
+Still planned per the design docs: a 5-level LOD system, the ImGui debug UI and
+multi-threaded chunk generation.
 
 ## Architecture
 
@@ -85,6 +103,7 @@ DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
 
 ## Roadmap
 
-- **v0.1.0 (this release)** — engine core, Vulkan renderer, window, procedural voxel terrain.
-- **v0.2.0** — free-fly camera (WASD + mouse), LOD system, frustum culling, ImGui debug UI.
+- **v0.1.0** — engine core, Vulkan renderer, window, procedural voxel terrain.
+- **v0.2.0 (this release)** — free-fly camera (WASD + mouse), frustum culling, smoother terrain.
+- **v0.2.x** — 5-level LOD system, ImGui debug UI, multi-threaded chunk generation.
 - **v0.3.0+** — compute meshing, physics, chunk streaming, networking (see design docs).

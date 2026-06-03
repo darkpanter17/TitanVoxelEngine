@@ -42,6 +42,7 @@ public:
 private:
     void generate_world();
     void update(float dt);
+    void process_input(float dt);
 
     EngineConfig config_;
     std::unique_ptr<Window> window_;
@@ -51,6 +52,9 @@ private:
     entt::registry registry_;
 
     std::uint64_t frame_count_ = 0;
+    bool interactive_ = true;     // free-fly + input vs headless orbit
+    bool esc_was_down_ = false;   // edge detection for cursor toggle
+    float mouse_sensitivity_ = 0.0025f; // radians per pixel
 };
 
 } // namespace lh

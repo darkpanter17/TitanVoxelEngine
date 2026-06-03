@@ -16,11 +16,16 @@ Engine::~Engine() {
 }
 
 void Engine::init() {
-    log_info("=== Lost Horizons C++23 v0.1.0 ===");
+    log_info("=== Lost Horizons C++23 v0.2.0 ===");
     log_info("Initializing voxel engine...");
 
+    // Headless / CI runs (LH_MAX_FRAMES > 0) use the auto-orbit camera so a
+    // frame can render without any input; interactive runs use the free-fly
+    // camera driven by the keyboard and mouse.
+    interactive_ = (config_.max_frames == 0);
+
     window_ = std::make_unique<Window>(config_.window_width, config_.window_height,
-                                       "Lost Horizons C++23 v0.1.0");
+                                       "Lost Horizons C++23 v0.2.0");
     log_info("Window created: " + std::to_string(config_.window_width) + "x" +
              std::to_string(config_.window_height));
 
@@ -28,12 +33,23 @@ void Engine::init() {
 
     generate_world();
 
-    // Frame the terrain: orbit around the centre at a comfortable distance.
     const glm::vec3 size = world_.world_size();
     const glm::vec3 center = size * 0.5f;
-    camera_.set_target({center.x, size.y * 0.5f, center.z});
-    camera_.set_radius(size.x * 0.95f);
-    camera_.set_height(size.y * 0.85f);
+    if (interactive_) {
+        // Free-fly: start above and behind the terrain, looking at its centre.
+        camera_.set_orbit(false);
+        camera_.set_position({center.x, size.y * 1.15f, center.z + size.z * 0.9f});
+        camera_.look_at({center.x, size.y * 0.35f, center.z});
+        window_->set_cursor_captured(true);
+        log_info("Controls: WASD move, Q/E down/up, Shift fast, Ctrl slow, "
+                 "mouse look, scroll zoom, ESC release cursor.");
+    } else {
+        // Orbit around the centre at a comfortable distance.
+        camera_.set_orbit(true);
+        camera_.set_target({center.x, size.y * 0.5f, center.z});
+        camera_.set_radius(size.x * 0.95f);
+        camera_.set_height(size.y * 0.85f);
+    }
 
     log_info("Initialization complete!");
 }
@@ -65,7 +81,44 @@ void Engine::generate_world() {
              std::to_string(total_triangles) + " triangles)");
 }
 
+void Engine::process_input(float dt) {
+    (void)dt;
+    if (!interactive_) {
+        return;
+    }
+
+    // ESC toggles cursor capture (edge-triggered).
+    const bool esc_down = window_->is_key_down(GLFW_KEY_ESCAPE);
+    if (esc_down && !esc_was_down_) {
+        window_->set_cursor_captured(!window_->cursor_captured());
+    }
+    esc_was_down_ = esc_down;
+
+    Camera::MoveInput in{};
+    in.forward = window_->is_key_down(GLFW_KEY_W);
+    in.back = window_->is_key_down(GLFW_KEY_S);
+    in.left = window_->is_key_down(GLFW_KEY_A);
+    in.right = window_->is_key_down(GLFW_KEY_D);
+    in.up = window_->is_key_down(GLFW_KEY_E);
+    in.down = window_->is_key_down(GLFW_KEY_Q);
+    in.fast = window_->is_key_down(GLFW_KEY_LEFT_SHIFT) ||
+              window_->is_key_down(GLFW_KEY_RIGHT_SHIFT);
+    in.slow = window_->is_key_down(GLFW_KEY_LEFT_CONTROL) ||
+              window_->is_key_down(GLFW_KEY_RIGHT_CONTROL);
+    camera_.set_move_input(in);
+
+    double dx = 0.0;
+    double dy = 0.0;
+    window_->take_mouse_delta(dx, dy);
+    if (window_->cursor_captured()) {
+        camera_.add_look(static_cast<float>(dx) * mouse_sensitivity_,
+                         -static_cast<float>(dy) * mouse_sensitivity_);
+    }
+    camera_.add_zoom(static_cast<float>(window_->take_scroll()));
+}
+
 void Engine::update(float dt) {
+    process_input(dt);
     camera_.update(dt);
 }
 
@@ -101,8 +154,9 @@ void Engine::run() {
             std::chrono::duration<float>(now - last_report).count();
         if (since_report >= 1.0f) {
             const float fps = static_cast<float>(frames_since_report) / since_report;
-            log_info("FPS: " + std::to_string(static_cast<int>(fps)) + " | Chunks: " +
-                     std::to_string(renderer_.mesh_count()));
+            log_info("FPS: " + std::to_string(static_cast<int>(fps)) +
+                     " | Chunks: " + std::to_string(renderer_.visible_count()) + "/" +
+                     std::to_string(renderer_.mesh_count()) + " visible");
             last_report = now;
             frames_since_report = 0;
         }

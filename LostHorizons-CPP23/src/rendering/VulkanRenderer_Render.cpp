@@ -54,16 +54,23 @@ void VulkanRenderer::record_command_buffer(VkCommandBuffer cmd, std::uint32_t im
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1,
                             &descriptor_sets_[current_frame_], 0, nullptr);
 
+    std::uint32_t visible = 0;
     for (const GpuMesh& mesh : meshes_) {
         if (mesh.index_count == 0) {
             continue;
         }
+        // Skip meshes whose bounding box is entirely outside the view frustum.
+        if (!frustum_.intersects_aabb(mesh.aabb_min, mesh.aabb_max)) {
+            continue;
+        }
+        ++visible;
         const VkBuffer buffers[] = {mesh.vertex_buffer};
         const VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
         vkCmdBindIndexBuffer(cmd, mesh.index_buffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
     }
+    visible_count_ = visible;
 
     vkCmdEndRenderPass(cmd);
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
@@ -87,6 +94,7 @@ void VulkanRenderer::draw_frame(const glm::mat4& view, const glm::mat4& proj) {
     }
 
     update_uniform_buffer(current_frame_, view, proj);
+    frustum_.update(proj * view);
 
     vkResetFences(device_, 1, &in_flight_[current_frame_]);
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
