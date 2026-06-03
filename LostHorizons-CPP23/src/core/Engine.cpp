@@ -4,6 +4,7 @@
 #include <string>
 
 #include "core/Logger.hpp"
+#include "core/Threading.hpp"
 #include "ecs/Components.hpp"
 #include "voxel/TerrainGenerator.hpp"
 
@@ -16,8 +17,12 @@ Engine::~Engine() {
 }
 
 void Engine::init() {
-    log_info("=== Lost Horizons C++23 v0.2.0 ===");
+    log_info("=== Lost Horizons C++23 v0.2.1 ===");
     log_info("Initializing voxel engine...");
+
+    const unsigned threads = resolve_thread_count(config_.thread_count);
+    log_info("Worker threads: " + std::to_string(threads) +
+             (config_.thread_count == 0 ? " (auto)" : " (LH_THREADS)"));
 
     // Headless / CI runs (LH_MAX_FRAMES > 0) use the auto-orbit camera so a
     // frame can render without any input; interactive runs use the free-fly
@@ -25,7 +30,7 @@ void Engine::init() {
     interactive_ = (config_.max_frames == 0);
 
     window_ = std::make_unique<Window>(config_.window_width, config_.window_height,
-                                       "Lost Horizons C++23 v0.2.0");
+                                       "Lost Horizons C++23 v0.2.1");
     log_info("Window created: " + std::to_string(config_.window_width) + "x" +
              std::to_string(config_.window_height));
 
@@ -55,14 +60,25 @@ void Engine::init() {
 }
 
 void Engine::generate_world() {
+    using clock = std::chrono::high_resolution_clock;
+    const unsigned threads = resolve_thread_count(config_.thread_count);
+
     log_info("Generating voxel world...");
     const voxel::TerrainGenerator generator(config_.seed);
-    world_.generate(generator, config_.world_dims);
+    const auto gen_start = clock::now();
+    world_.generate(generator, config_.world_dims, threads);
+    const float gen_ms =
+        std::chrono::duration<float, std::milli>(clock::now() - gen_start).count();
     log_info("Generated " + std::to_string(world_.chunks().size()) + " chunks (seed " +
-             std::to_string(generator.seed()) + ")");
+             std::to_string(generator.seed()) + ") in " + std::to_string(gen_ms) + " ms");
 
     log_info("Meshing chunks and uploading to GPU...");
-    std::vector<voxel::ChunkMesh> meshes = world_.build_meshes();
+    const auto mesh_start = clock::now();
+    std::vector<voxel::ChunkMesh> meshes = world_.build_meshes(threads);
+    const float mesh_ms =
+        std::chrono::duration<float, std::milli>(clock::now() - mesh_start).count();
+    log_info("Meshed " + std::to_string(meshes.size()) + " chunks in " +
+             std::to_string(mesh_ms) + " ms (" + std::to_string(threads) + " threads)");
 
     std::uint64_t total_triangles = 0;
     for (const voxel::ChunkMesh& chunk_mesh : meshes) {

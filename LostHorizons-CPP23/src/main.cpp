@@ -26,6 +26,9 @@ int main() {
     // Allow CI / headless runs to render a fixed number of frames and exit.
     config.max_frames = env_u64("LH_MAX_FRAMES", 0);
     config.seed = static_cast<std::uint32_t>(env_u64("LH_SEED", config.seed));
+    // 0 = auto (one worker per hardware thread). Set LH_THREADS to pin the
+    // chunk generation / meshing worker count (e.g. for deterministic CI runs).
+    config.thread_count = static_cast<unsigned>(env_u64("LH_THREADS", config.thread_count));
 
     try {
         lh::Engine engine(config);

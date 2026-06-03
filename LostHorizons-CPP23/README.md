@@ -1,8 +1,9 @@
-# Lost Horizons C++23 — Voxel Engine (v0.2.0)
+# Lost Horizons C++23 — Voxel Engine (v0.2.1)
 
 The **Lost Horizons** voxel engine, written in **modern C++23** with **Vulkan**.
-v0.1.0 delivered the foundation (engine core, renderer, window). **v0.2.0** adds
-a **free-fly camera**, **frustum culling** and **smoother procedural terrain**.
+v0.1.0 delivered the foundation (engine core, renderer, window). v0.2.0 added a
+**free-fly camera**, **frustum culling** and **smoother procedural terrain**.
+**v0.2.1** parallelises **chunk generation and meshing** across worker threads.
 
 > The original game design documents referenced a Godot/Python prototype. The
 > production engine targets **C++23 + Vulkan** (see `BUILD_INSTRUCTIONS`,
@@ -11,7 +12,20 @@ a **free-fly camera**, **frustum culling** and **smoother procedural terrain**.
 
 ![Voxel terrain rendered by the engine](docs/screenshot.png)
 
-## What's in v0.2.0
+## What's in v0.2.1
+
+| Area | Implemented |
+|------|-------------|
+| **Multi-threaded worldgen** | Chunk terrain generation runs in parallel across worker threads; each chunk is written by exactly one worker |
+| **Multi-threaded meshing** | Per-chunk face-culled meshing runs in parallel, then results are compacted in chunk order |
+| **Deterministic** | Output is identical regardless of worker count; `LH_THREADS` pins the count (`0` = auto = one per hardware thread) |
+| **Timing logs** | Generation and meshing durations are logged at startup so the speedup is observable |
+
+The parallel primitive is a small header-only `parallel_for` (`include/core/Threading.hpp`)
+built on `std::jthread` with atomic-counter dynamic scheduling — no third-party
+threading dependency.
+
+### Inherited from v0.2.0
 
 | Area | Implemented |
 |------|-------------|
@@ -41,14 +55,13 @@ a **free-fly camera**, **frustum culling** and **smoother procedural terrain**.
 | Scroll | Zoom (FOV) |
 | `ESC` | Release / re-capture the cursor |
 
-Still planned per the design docs: a 5-level LOD system, the ImGui debug UI and
-multi-threaded chunk generation.
+Still planned per the design docs: a 5-level LOD system and the ImGui debug UI.
 
 ## Architecture
 
 ```
 include/ + src/
-├── core/        Window (GLFW), Engine loop, Camera, Logger
+├── core/        Window (GLFW), Engine loop, Camera, Logger, Threading (parallel_for)
 ├── rendering/   Vertex format, VulkanRenderer (Init/Swapchain/Pipeline/Render)
 ├── voxel/       VoxelData, TerrainGenerator, ChunkMesher, World
 └── ecs/         Components (Transform, Mesh, Chunk)
@@ -89,6 +102,7 @@ Environment variables:
 | Variable | Effect |
 |----------|--------|
 | `LH_SEED` | Terrain generation seed (default `1337`) |
+| `LH_THREADS` | Worker threads for chunk generation + meshing (`0` = auto, one per hardware thread) |
 | `LH_MAX_FRAMES` | Render N frames then exit (`0` = run until window closes). Used for headless/CI smoke tests. |
 
 ### Headless / software rendering
@@ -104,6 +118,7 @@ DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
 ## Roadmap
 
 - **v0.1.0** — engine core, Vulkan renderer, window, procedural voxel terrain.
-- **v0.2.0 (this release)** — free-fly camera (WASD + mouse), frustum culling, smoother terrain.
-- **v0.2.x** — 5-level LOD system, ImGui debug UI, multi-threaded chunk generation.
+- **v0.2.0** — free-fly camera (WASD + mouse), frustum culling, smoother terrain.
+- **v0.2.1 (this release)** — multi-threaded chunk generation and meshing (`std::jthread` `parallel_for`).
+- **v0.2.x** — 5-level LOD system, ImGui debug UI.
 - **v0.3.0+** — compute meshing, physics, chunk streaming, networking (see design docs).

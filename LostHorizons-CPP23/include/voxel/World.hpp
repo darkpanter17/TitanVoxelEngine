@@ -23,10 +23,16 @@ struct ChunkMesh {
 class World {
 public:
     // Generate a `dims` grid of chunks (in chunk units) using `generator`.
-    void generate(const TerrainGenerator& generator, glm::ivec3 dims);
+    // Chunks are generated in parallel across `thread_count` workers
+    // (`0` = auto, one per hardware thread). Generation is deterministic
+    // regardless of the worker count.
+    void generate(const TerrainGenerator& generator, glm::ivec3 dims,
+                  unsigned thread_count = 0);
 
-    // Build a face-culled mesh for every non-empty chunk.
-    [[nodiscard]] std::vector<ChunkMesh> build_meshes() const;
+    // Build a face-culled mesh for every non-empty chunk. Meshing runs in
+    // parallel across `thread_count` workers (`0` = auto); the returned order
+    // is deterministic and independent of the worker count.
+    [[nodiscard]] std::vector<ChunkMesh> build_meshes(unsigned thread_count = 0) const;
 
     // Solid test in world voxel coordinates (out-of-world is treated as air).
     [[nodiscard]] bool is_solid_world(int wx, int wy, int wz) const;
