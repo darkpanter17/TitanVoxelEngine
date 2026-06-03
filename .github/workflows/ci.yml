@@ -1,0 +1,41 @@
+name: Lost Horizons CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    name: Build & headless smoke test
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: LostHorizons-CPP23
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build g++-13 \
+            libglfw3-dev libglm-dev libvulkan-dev glslang-tools \
+            mesa-vulkan-drivers vulkan-tools xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Headless smoke test (software Vulkan)
+        run: |
+          export XDG_RUNTIME_DIR=/tmp/xdg
+          mkdir -p "$XDG_RUNTIME_DIR"
+          Xvfb :99 -screen 0 1280x720x24 &
+          sleep 2
+          DISPLAY=:99 \
+          VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+          LH_MAX_FRAMES=60 \
+            ./build/bin/LostHorizons
