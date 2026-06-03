@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include "rendering/Frustum.hpp"
 #include "rendering/Vertex.hpp"
 
 namespace lh {
@@ -22,13 +23,16 @@ struct UniformBufferObject {
     glm::vec4 light_dir; // xyz = direction, w unused
 };
 
-// A GPU-resident mesh (device-local vertex + index buffers).
+// A GPU-resident mesh (device-local vertex + index buffers) plus the world-space
+// bounding box used for frustum culling.
 struct GpuMesh {
     VkBuffer vertex_buffer = VK_NULL_HANDLE;
     VkDeviceMemory vertex_memory = VK_NULL_HANDLE;
     VkBuffer index_buffer = VK_NULL_HANDLE;
     VkDeviceMemory index_memory = VK_NULL_HANDLE;
     std::uint32_t index_count = 0;
+    glm::vec3 aabb_min{0.0f};
+    glm::vec3 aabb_max{0.0f};
 };
 
 // Core Vulkan renderer: owns the instance, device, swapchain, pipeline and
@@ -52,6 +56,9 @@ public:
     [[nodiscard]] std::uint32_t mesh_count() const {
         return static_cast<std::uint32_t>(meshes_.size());
     }
+
+    // Number of meshes that passed frustum culling in the last frame.
+    [[nodiscard]] std::uint32_t visible_count() const { return visible_count_; }
 
 private:
     struct QueueFamilyIndices {
@@ -160,6 +167,8 @@ private:
 
     // Meshes.
     std::vector<GpuMesh> meshes_;
+    Frustum frustum_;
+    std::uint32_t visible_count_ = 0;
 
     bool validation_enabled_ = false;
 };

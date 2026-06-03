@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(LostHorizons
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Lost Horizons C++23 voxel engine"
     LANGUAGES CXX)
 

@@ -339,6 +339,18 @@ std::uint32_t VulkanRenderer::upload_mesh(const MeshData& mesh) {
     GpuMesh gpu;
     gpu.index_count = static_cast<std::uint32_t>(mesh.indices.size());
 
+    // World-space bounding box for frustum culling.
+    if (!mesh.vertices.empty()) {
+        glm::vec3 mn = mesh.vertices.front().position;
+        glm::vec3 mx = mn;
+        for (const Vertex& v : mesh.vertices) {
+            mn = glm::min(mn, v.position);
+            mx = glm::max(mx, v.position);
+        }
+        gpu.aabb_min = mn;
+        gpu.aabb_max = mx;
+    }
+
     // Vertex buffer (staging -> device-local).
     {
         const VkDeviceSize size = sizeof(Vertex) * mesh.vertices.size();

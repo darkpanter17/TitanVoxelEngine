@@ -42,25 +42,45 @@ float TerrainGenerator::value_noise(float x, float z) const {
 }
 
 float TerrainGenerator::fractal_noise(float x, float z) const {
+    // Fractal Brownian motion. A low persistence keeps the high-frequency
+    // octaves subtle so the surface reads as smooth rolling hills rather than
+    // noisy speckle.
+    constexpr int kOctaves = 5;
+    constexpr float kPersistence = 0.5f;
+    constexpr float kLacunarity = 2.0f;
     float amplitude = 1.0f;
     float frequency = 1.0f;
     float sum = 0.0f;
     float norm = 0.0f;
-    for (int octave = 0; octave < 4; ++octave) {
+    for (int octave = 0; octave < kOctaves; ++octave) {
         sum += amplitude * value_noise(x * frequency, z * frequency);
         norm += amplitude;
-        amplitude *= 0.5f;
-        frequency *= 2.0f;
+        amplitude *= kPersistence;
+        frequency *= kLacunarity;
     }
     return sum / norm; // [0, 1)
 }
 
 float TerrainGenerator::height_at(int world_x, int world_z) const {
-    constexpr float kScale = 0.012f;   // controls hill size
-    constexpr float kBase = 18.0f;     // baseline height in voxels
+    constexpr float kScale = 0.0075f;   // broad, gentle hills
+    constexpr float kBase = 12.0f;      // baseline height in voxels
     constexpr float kAmplitude = 26.0f; // peak-to-valley range
-    const float n = fractal_noise(static_cast<float>(world_x) * kScale,
-                                  static_cast<float>(world_z) * kScale);
+
+    // Box-filter the noise over a small kernel to wash out single-voxel
+    // speckle, then round the result with a smoothstep so peaks and valleys
+    // are gentle instead of sharply terraced.
+    constexpr float kKernelStep = 1.5f;
+    float acc = 0.0f;
+    int samples = 0;
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            const float sx = (static_cast<float>(world_x) + dx * kKernelStep) * kScale;
+            const float sz = (static_cast<float>(world_z) + dz * kKernelStep) * kScale;
+            acc += fractal_noise(sx, sz);
+            ++samples;
+        }
+    }
+    const float n = smooth(acc / static_cast<float>(samples));
     return kBase + n * kAmplitude;
 }
 
@@ -69,8 +89,8 @@ void TerrainGenerator::generate(Chunk& chunk) const {
     const int base_y = chunk.coord.y * kChunkSize;
     const int base_z = chunk.coord.z * kChunkSize;
 
-    constexpr int kWaterLevel = 16;
-    constexpr int kSnowLevel = 38;
+    constexpr int kWaterLevel = 17;
+    constexpr int kSnowLevel = 34;
 
     for (int x = 0; x < kChunkSize; ++x) {
         for (int z = 0; z < kChunkSize; ++z) {
