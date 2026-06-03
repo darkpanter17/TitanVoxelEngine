@@ -1,5 +1,7 @@
 #include "voxel/World.hpp"
 
+#include "core/Threading.hpp"
+
 namespace lh::voxel {
 
 std::uint64_t World::key(int cx, int cy, int cz) {
@@ -10,23 +12,32 @@ std::uint64_t World::key(int cx, int cy, int cz) {
     return ux | (uy << 21) | (uz << 42);
 }
 
-void World::generate(const TerrainGenerator& generator, glm::ivec3 dims) {
+void World::generate(const TerrainGenerator& generator, glm::ivec3 dims,
+                     unsigned thread_count) {
     dims_ = dims;
-    chunks_.clear();
     lookup_.clear();
-    chunks_.reserve(static_cast<std::size_t>(dims.x) * dims.y * dims.z);
+    const std::size_t count = static_cast<std::size_t>(dims.x) * dims.y * dims.z;
 
+    // Pre-size the storage and assign each chunk its coordinate up front so the
+    // parallel pass only ever writes to its own, disjoint chunk. Filling the
+    // lookup table serially keeps it free of data races and deterministic.
+    chunks_.assign(count, Chunk{});
+    lookup_.reserve(count);
+    std::size_t linear = 0;
     for (int cx = 0; cx < dims.x; ++cx) {
         for (int cy = 0; cy < dims.y; ++cy) {
             for (int cz = 0; cz < dims.z; ++cz) {
-                Chunk chunk;
-                chunk.coord = {cx, cy, cz};
-                generator.generate(chunk);
-                lookup_[key(cx, cy, cz)] = chunks_.size();
-                chunks_.push_back(std::move(chunk));
+                chunks_[linear].coord = {cx, cy, cz};
+                lookup_[key(cx, cy, cz)] = linear;
+                ++linear;
             }
         }
     }
+
+    // Terrain generation only ever touches the chunk passed to it, so distinct
+    // chunks can be generated concurrently.
+    parallel_for(count, resolve_thread_count(thread_count),
+                 [&](std::size_t i) { generator.generate(chunks_[i]); });
 }
 
 const Chunk* World::chunk_at(int cx, int cy, int cz) const {
@@ -53,18 +64,27 @@ bool World::is_solid_world(int wx, int wy, int wz) const {
                               wz - cz * kChunkSize));
 }
 
-std::vector<ChunkMesh> World::build_meshes() const {
-    std::vector<ChunkMesh> result;
-    result.reserve(chunks_.size());
+std::vector<ChunkMesh> World::build_meshes(unsigned thread_count) const {
+    // Meshing reads neighbouring chunks (via is_solid_world) but never mutates
+    // the world, so every chunk can be meshed concurrently. Each worker writes
+    // to its own slot; results are compacted afterwards in chunk order so the
+    // output is identical regardless of how the work was scheduled.
+    std::vector<render::MeshData> meshes(chunks_.size());
 
-    for (const Chunk& chunk : chunks_) {
+    parallel_for(chunks_.size(), resolve_thread_count(thread_count), [&](std::size_t i) {
+        const Chunk& chunk = chunks_[i];
         const glm::ivec3 base = chunk.coord * kChunkSize;
         const auto sampler = [&](int lx, int ly, int lz) {
             return is_solid_world(base.x + lx, base.y + ly, base.z + lz);
         };
-        render::MeshData mesh = ChunkMesher::build(chunk, sampler);
-        if (!mesh.empty()) {
-            result.push_back({chunk.coord, std::move(mesh)});
+        meshes[i] = ChunkMesher::build(chunk, sampler);
+    });
+
+    std::vector<ChunkMesh> result;
+    result.reserve(chunks_.size());
+    for (std::size_t i = 0; i < chunks_.size(); ++i) {
+        if (!meshes[i].empty()) {
+            result.push_back({chunks_[i].coord, std::move(meshes[i])});
         }
     }
 

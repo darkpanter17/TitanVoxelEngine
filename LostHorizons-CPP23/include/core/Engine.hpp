@@ -21,6 +21,9 @@ struct EngineConfig {
     // If > 0, the engine renders this many frames and then exits. Used for
     // headless smoke tests / CI. 0 means run until the window is closed.
     std::uint64_t max_frames = 0;
+    // Worker threads used for chunk generation and meshing. 0 = auto (one per
+    // hardware thread).
+    unsigned thread_count = 0;
 };
 
 // Top-level engine: owns the window, Vulkan renderer, voxel world and the ECS
