@@ -33,9 +33,28 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR=/tmp/xdg
           mkdir -p "$XDG_RUNTIME_DIR"
+
+          # Locate Mesa's software Vulkan (lavapipe) ICD; fall back to loader
+          # auto-discovery if the file isn't where we expect.
+          echo "Available Vulkan ICDs:"
+          ls -la /usr/share/vulkan/icd.d/ || true
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1 || true)
+          if [ -z "$LVP_ICD" ]; then
+            LVP_ICD=$(find / -name 'lvp_icd*.json' 2>/dev/null | head -1 || true)
+          fi
+          echo "Using lavapipe ICD: '${LVP_ICD:-<auto-discovery>}'"
+
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 2
-          DISPLAY=:99 \
-          VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
-          LH_MAX_FRAMES=60 \
-            ./build/bin/LostHorizons
+
+          export DISPLAY=:99
+          if [ -n "$LVP_ICD" ]; then
+            export VK_ICD_FILENAMES="$LVP_ICD"
+            export VK_DRIVER_FILES="$LVP_ICD"
+          fi
+
+          echo "=== vulkaninfo (diagnostic) ==="
+          vulkaninfo --summary 2>&1 | grep -iE "deviceName|driverName|apiVersion" || true
+
+          echo "=== running engine ==="
+          LH_MAX_FRAMES=60 ./build/bin/LostHorizons

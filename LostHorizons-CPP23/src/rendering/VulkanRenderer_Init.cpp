@@ -131,8 +131,15 @@ void VulkanRenderer::create_instance() {
         create_info.pNext = &debug_info;
     }
 
-    if (vkCreateInstance(&create_info, nullptr, &instance_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create Vulkan instance");
+    const VkResult result = vkCreateInstance(&create_info, nullptr, &instance_);
+    if (result != VK_SUCCESS) {
+        std::string hint;
+        if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
+            hint = " (VK_ERROR_INCOMPATIBLE_DRIVER: no Vulkan driver/ICD found - "
+                   "install a GPU driver or Mesa lavapipe for software rendering)";
+        }
+        throw std::runtime_error("Failed to create Vulkan instance: VkResult=" +
+                                 std::to_string(static_cast<int>(result)) + hint);
     }
     log_info("[Vulkan] Instance created");
 }
