@@ -111,6 +111,12 @@ impl Texture {
         Ok(Self { texture, view, sampler })
     }
 
+    pub const PLACEHOLDER_COLORS: [[u8; 4]; 3] = [
+        [100, 70, 50, 255],   // marrón (tierra)
+        [80, 140, 60, 255],   // verde (hierba)
+        [120, 120, 120, 255], // gris (piedra)
+    ];
+
     /// Crea un array de texturas placeholder (1x1 por capa) cuando falla la descarga o carga.
     pub fn create_placeholder_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, num_layers: u32) -> Self {
         let width = 1u32;
@@ -131,13 +137,8 @@ impl Texture {
             view_formats: &[],
         });
         // Rellenar cada capa con un color distinto (RGBA 1x1) para distinguir bloques
-        let colors: [[u8; 4]; 3] = [
-            [100, 70, 50, 255],   // marrón (tierra)
-            [80, 140, 60, 255],   // verde (hierba)
-            [120, 120, 120, 255], // gris (piedra)
-        ];
-        for i in 0..num_layers.min(3) {
-            let c = colors[i as usize];
+        for i in 0..num_layers.min(Self::PLACEHOLDER_COLORS.len() as u32) {
+            let c = Self::PLACEHOLDER_COLORS[i as usize];
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
@@ -154,7 +155,7 @@ impl Texture {
                 wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
             );
         }
-        for i in 3..num_layers {
+        for i in (Self::PLACEHOLDER_COLORS.len() as u32)..num_layers {
             let c: [u8; 4] = [80, 80, 80, 255];
             queue.write_texture(
                 wgpu::ImageCopyTexture {
