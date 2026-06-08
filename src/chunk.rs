@@ -20,6 +20,14 @@ impl Chunk {
 
     /// Índice lineal: x más rápido, luego z, luego y (size = 32×256×32 = 262144).
     #[inline(always)]
+    pub fn get_voxel_safe(&self, x: i32, y: i32, z: i32) -> u16 {
+        if x < 0 || y < 0 || z < 0 || x >= CHUNK_SIZE as i32 || y >= CHUNK_HEIGHT as i32 || z >= CHUNK_SIZE as i32 {
+            return 0;
+        }
+        self.data[x as usize + (z as usize * CHUNK_SIZE) + (y as usize * CHUNK_SIZE * CHUNK_SIZE)]
+    }
+
+    #[inline(always)]
     pub fn get_voxel(&self, x: usize, y: usize, z: usize) -> u16 {
         if x >= CHUNK_SIZE || y >= CHUNK_HEIGHT || z >= CHUNK_SIZE { return 0; }
         self.data[x + (z * CHUNK_SIZE) + (y * CHUNK_SIZE * CHUNK_SIZE)]
