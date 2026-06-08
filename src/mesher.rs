@@ -42,10 +42,7 @@ pub struct Mesh {
 }
 
 fn is_air(chunk: &Chunk, x: i32, y: i32, z: i32) -> bool {
-    if x < 0 || y < 0 || z < 0 || x >= CHUNK_SIZE as i32 || y >= CHUNK_HEIGHT as i32 || z >= CHUNK_SIZE as i32 {
-        return true; // Consider out-of-bounds as air to draw edge faces
-    }
-    chunk.get_voxel(x as usize, y as usize, z as usize) == 0
+    chunk.get_voxel_safe(x, y, z) == 0
 }
 
 pub fn generate_mesh(chunk: &Chunk) -> Mesh {
