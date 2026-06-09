@@ -1,0 +1,22 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+warning: the following packages contain code that will be rejected by a future version of Rust: mlua v0.8.10
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running `target/debug/titan_voxel_engine`
+--- INICIANDO GESTOR DE ASSETS (LUA) ---
+Descargando textura [dirt] desde: https://dummyimage.com/256x256/8b4513/ffffff.png&text=dirt
+[Rust] Descargando: https://dummyimage.com/256x256/8b4513/ffffff.png&text=dirt -> assets/textures/1.png
+  -> Guardado en: assets/textures/1.png
+Descargando textura [grass] desde: https://dummyimage.com/256x256/228b22/ffffff.png&text=grass
+[Rust] Descargando: https://dummyimage.com/256x256/228b22/ffffff.png&text=grass -> assets/textures/2.png
+  -> Guardado en: assets/textures/2.png
+Descargando textura [stone] desde: https://dummyimage.com/256x256/808080/ffffff.png&text=stone
+[Rust] Descargando: https://dummyimage.com/256x256/808080/ffffff.png&text=stone -> assets/textures/3.png
+  -> Guardado en: assets/textures/3.png
+Descargando textura [sand] desde: https://dummyimage.com/256x256/f4a460/ffffff.png&text=sand
+[Rust] Descargando: https://dummyimage.com/256x256/f4a460/ffffff.png&text=sand -> assets/textures/4.png
+  -> Guardado en: assets/textures/4.png
+Descargando textura [wood] desde: https://dummyimage.com/256x256/a0522d/ffffff.png&text=wood
+[Rust] Descargando: https://dummyimage.com/256x256/a0522d/ffffff.png&text=wood -> assets/textures/5.png
+  -> Guardado en: assets/textures/5.png
+--- DESCARGA COMPLETA ---
+Killed
