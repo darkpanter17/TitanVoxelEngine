@@ -12,7 +12,11 @@ impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
     // Crear el Z-Buffer (Profundidad)
-    pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
+    pub fn create_depth_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        label: &str,
+    ) -> Self {
         let size = wgpu::Extent3d {
             width: config.width,
             height: config.height,
@@ -32,14 +36,23 @@ impl Texture {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             compare: Some(wgpu::CompareFunction::LessEqual),
-            lod_min_clamp: 0.0, lod_max_clamp: 100.0,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 100.0,
             ..Default::default()
         });
-        Self { texture, view, sampler }
+        Self {
+            texture,
+            view,
+            sampler,
+        }
     }
 
     // CARGAR ARRAY DE TEXTURAS (La parte difícil)
-    pub fn load_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, paths: Vec<String>) -> anyhow::Result<Self> {
+    pub fn load_texture_array(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        paths: Vec<String>,
+    ) -> anyhow::Result<Self> {
         let mut layers = Vec::new();
         let (mut width, mut height) = (0, 0);
 
@@ -47,13 +60,20 @@ impl Texture {
         for (i, path) in paths.iter().enumerate() {
             let img = image::open(path)?.to_rgba8();
             let dim = img.dimensions();
-            
+
             if i == 0 {
-                width = dim.0; height = dim.1;
+                width = dim.0;
+                height = dim.1;
             } else {
                 // En un motor real, aquí redimensionaríamos. Hoy hacemos panic si no coinciden.
-                assert_eq!(dim.0, width, "Todas las texturas deben tener el mismo ancho");
-                assert_eq!(dim.1, height, "Todas las texturas deben tener el mismo alto");
+                assert_eq!(
+                    dim.0, width,
+                    "Todas las texturas deben tener el mismo ancho"
+                );
+                assert_eq!(
+                    dim.1, height,
+                    "Todas las texturas deben tener el mismo alto"
+                );
             }
             layers.push(img);
         }
@@ -81,7 +101,11 @@ impl Texture {
                 wgpu::ImageCopyTexture {
                     texture: &texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 }, // Z es el índice del array
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as u32,
+                    }, // Z es el índice del array
                     aspect: wgpu::TextureAspect::All,
                 },
                 img,
@@ -90,7 +114,11 @@ impl Texture {
                     bytes_per_row: Some(4 * width),
                     rows_per_image: Some(height),
                 },
-                wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
             );
         }
 
@@ -108,11 +136,19 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self { texture, view, sampler })
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+        })
     }
 
     /// Crea un array de texturas placeholder (1x1 por capa) cuando falla la descarga o carga.
-    pub fn create_placeholder_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, num_layers: u32) -> Self {
+    pub fn create_placeholder_texture_array(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        num_layers: u32,
+    ) -> Self {
         let width = 1u32;
         let height = 1u32;
         let size = wgpu::Extent3d {
@@ -151,7 +187,11 @@ impl Texture {
                     bytes_per_row: Some(4),
                     rows_per_image: Some(1),
                 },
-                wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
             );
         }
         for i in 3..num_layers {
@@ -169,7 +209,11 @@ impl Texture {
                     bytes_per_row: Some(4),
                     rows_per_image: Some(1),
                 },
-                wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
             );
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -184,6 +228,10 @@ impl Texture {
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-        Self { texture, view, sampler }
+        Self {
+            texture,
+            view,
+            sampler,
+        }
     }
 }
