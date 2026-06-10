@@ -81,22 +81,22 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                     // Right (+X)
                     if is_air(chunk, xi + 1, yi, zi) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf]], layer);
+                            [[xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0]], layer);
                     }
                     // Left (-X)
                     if is_air(chunk, xi - 1, yi, zi) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf], [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0]], layer);
+                            [[xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf, yf + 1.0, zf], [xf, yf, zf]], layer);
                     }
                     // Front (+Z)
                     if is_air(chunk, xi, yi, zi + 1) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0]], layer);
+                            [[xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0]], layer);
                     }
                     // Back (-Z)
                     if is_air(chunk, xi, yi, zi - 1) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf], [xf, yf, zf]], layer);
+                            [[xf, yf, zf], [xf, yf + 1.0, zf], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf]], layer);
                     }
                  }
             }
