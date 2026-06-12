@@ -114,3 +114,41 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_generate_mesh_empty_chunk() {
+        let chunk = Chunk::new(IVec3::ZERO);
+        let mesh = generate_mesh(&chunk);
+        assert_eq!(mesh.vertices.len(), 0);
+        assert_eq!(mesh.indices.len(), 0);
+    }
+
+    #[test]
+    fn test_generate_mesh_single_voxel() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        let mesh = generate_mesh(&chunk);
+        // A single exposed voxel has 6 faces. Each face has 4 vertices and 6 indices.
+        assert_eq!(mesh.vertices.len(), 6 * 4);
+        assert_eq!(mesh.indices.len(), 6 * 6);
+    }
+
+    #[test]
+    fn test_generate_mesh_culling() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        chunk.set_voxel(0, 1, 0, 1);
+        let mesh = generate_mesh(&chunk);
+        // 2 voxels stacked. The touching faces should be culled.
+        // Voxel 1 (bottom): 5 faces exposed (bottom, left, right, front, back).
+        // Voxel 2 (top): 5 faces exposed (top, left, right, front, back).
+        // Total faces = 10.
+        assert_eq!(mesh.vertices.len(), 10 * 4);
+        assert_eq!(mesh.indices.len(), 10 * 6);
+    }
+}

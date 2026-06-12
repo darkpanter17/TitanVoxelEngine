@@ -65,7 +65,13 @@ fn main() {
     let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
     window.set_cursor_visible(false); // Ocultar ratón para modo FPS
 
-    let mut state = pollster::block_on(State::new(&window));
+    let mut state = match pollster::block_on(State::new(&window)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to initialize wgpu state: {}", e);
+            return;
+        }
+    };
 
     event_loop.run(move |event, elwt| {
         match event {
@@ -73,6 +79,14 @@ fn main() {
                 if !state.input(event) { 
                     match event {
                         WindowEvent::CloseRequested => elwt.exit(),
+                        WindowEvent::KeyboardInput {
+                            event: winit::event::KeyEvent {
+                                physical_key: winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape),
+                                state: ElementState::Pressed,
+                                ..
+                            },
+                            ..
+                        } => elwt.exit(),
                         WindowEvent::Resized(physical_size) => state.resize(*physical_size),
                         WindowEvent::RedrawRequested => {
                             state.update();
