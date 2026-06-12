@@ -6,8 +6,7 @@ edition = "2021"
 [dependencies]
 glam = { version = "0.24", features = ["bytemuck"] }
 rayon = "1.8"
-mlua = { version = "0.8", features = ["lua54", "vendored"] }
-bitflags = "2.4"
+mlua = { version = "0.9.9", features = ["lua54", "vendored"] }
 winit = "0.29"
 wgpu = "0.19"
 pollster = "0.3"

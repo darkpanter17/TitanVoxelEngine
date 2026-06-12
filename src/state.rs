@@ -1,7 +1,8 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, chunk::{Chunk, CHUNK_SIZE}, texture, camera};
 use glam::{IVec3, Vec3};
+use rayon::prelude::*;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -15,13 +16,13 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> Self {
+    pub async fn new(window: &'a Window) -> anyhow::Result<Self> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
-        let surface = instance.create_surface(window).unwrap();
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.unwrap();
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
-        let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
+        let surface = instance.create_surface(window)?;
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.ok_or_else(|| anyhow::anyhow!("Failed to find an appropriate adapter"))?;
+        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await?;
+        let config = surface.get_default_config(&adapter, size.width, size.height).ok_or_else(|| anyhow::anyhow!("Failed to find default surface configuration"))?;
         surface.configure(&device, &config);
 
         // --- LOAD TEXTURES ---
@@ -91,18 +92,52 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut chunks: Vec<Chunk> = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunks.push(Chunk::new(IVec3::new(cx, 0, cz)));
+            }
+        }
+
+        chunks.par_iter_mut().for_each(|chunk| {
+            let cx_offset = chunk.position.x as f32 * CHUNK_SIZE as f32;
+            let cz_offset = chunk.position.z as f32 * CHUNK_SIZE as f32;
+
+            for x in 0..CHUNK_SIZE {
+                for z in 0..CHUNK_SIZE {
+                    let world_x = cx_offset + x as f32;
+                    let world_z = cz_offset + z as f32;
+
+                    let base_height = 10.0;
+                    let variation = (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0;
+                    let height = (base_height + variation) as usize;
+                    let max_height = height.clamp(1, crate::chunk::CHUNK_HEIGHT - 1);
+
+                    for y in 0..=max_height {
+                        let id = if y == max_height { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(|chunk| mesher::generate_mesh(chunk)).collect();
+
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let index_offset = all_vertices.len() as u32;
+            all_vertices.extend(&mesh.vertices);
+            all_indices.extend(mesh.indices.iter().map(|&idx| idx + index_offset));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Ok(Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
