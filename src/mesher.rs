@@ -68,6 +68,7 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                     let yf = yi as f32 + offset_y;
                     let zf = zi as f32 + offset_z;
 
+                    // Faces coordinates format: [Bottom-Left, Bottom-Right, Top-Right, Top-Left]
                     // Top (+Y)
                     if is_air(chunk, xi, yi + 1, zi) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
@@ -81,22 +82,22 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                     // Right (+X)
                     if is_air(chunk, xi + 1, yi, zi) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf]], layer);
+                            [[xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf + 1.0, zf + 1.0]], layer);
                     }
                     // Left (-X)
                     if is_air(chunk, xi - 1, yi, zi) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf], [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0]], layer);
+                            [[xf, yf, zf], [xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf, yf + 1.0, zf]], layer);
                     }
                     // Front (+Z)
                     if is_air(chunk, xi, yi, zi + 1) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0]], layer);
+                            [[xf + 1.0, yf, zf + 1.0], [xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0]], layer);
                     }
                     // Back (-Z)
                     if is_air(chunk, xi, yi, zi - 1) {
                         push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf], [xf, yf, zf]], layer);
+                            [[xf, yf, zf], [xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf]], layer);
                     }
                  }
             }
@@ -107,10 +108,11 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 
 fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
              pos: [[f32; 3]; 4], layer: u32) {
-    verts.push(Vertex { pos: pos[0], uv: [0.0, 1.0], layer });
-    verts.push(Vertex { pos: pos[1], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[2], uv: [1.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[3], uv: [1.0, 1.0], layer });
+    // CCW mapping for: [Bottom-Left, Bottom-Right, Top-Right, Top-Left]
+    verts.push(Vertex { pos: pos[0], uv: [0.0, 1.0], layer }); // BL
+    verts.push(Vertex { pos: pos[1], uv: [1.0, 1.0], layer }); // BR
+    verts.push(Vertex { pos: pos[2], uv: [1.0, 0.0], layer }); // TR
+    verts.push(Vertex { pos: pos[3], uv: [0.0, 0.0], layer }); // TL
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
