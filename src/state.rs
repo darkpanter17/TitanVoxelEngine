@@ -2,6 +2,7 @@ use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
 use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
 use glam::{IVec3, Vec3};
+use rayon::prelude::*;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -15,12 +16,12 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub async fn new(window: &'a Window) -> Self {
+    pub async fn new(window: &'a Window) -> anyhow::Result<Self> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
-        let surface = instance.create_surface(window).unwrap();
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.unwrap();
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
+        let surface = instance.create_surface(window)?;
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.ok_or_else(|| anyhow::anyhow!("No adapter found"))?;
+        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await?;
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
@@ -91,18 +92,42 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut chunks: Vec<Chunk> = (-1..=1)
+            .flat_map(|cx| (-1..=1).map(move |cz| Chunk::new(IVec3::new(cx, 0, cz))))
+            .collect();
+
+        chunks.par_iter_mut().for_each(|chunk| {
+            let cx = chunk.position.x;
+            let cz = chunk.position.z;
+            for x in 0..32 {
+                for z in 0..32 {
+                    let world_x = (cx * 32) as f32 + x as f32;
+                    let world_z = (cz * 32) as f32 + z as f32;
+                    let height = 16 + (f32::sin(world_x * 0.1) * 5.0 + f32::sin(world_z * 0.1) * 5.0) as i32;
+                    let max_y = height.clamp(1, 255) as usize;
+                    for y in 0..max_y {
+                        let id = if y == max_y - 1 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        let mut all_vertices: Vec<Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+        for chunk in &chunks {
+            let mesh = mesher::generate_mesh(chunk);
+            let vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(mesh.indices.into_iter().map(|i| i + vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
+        Ok(Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {

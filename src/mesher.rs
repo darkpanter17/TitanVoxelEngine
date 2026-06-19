@@ -114,3 +114,32 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_vertex_lengths() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        let mesh = generate_mesh(&chunk);
+
+        // Un solo voxel debería tener 6 caras de 4 vértices (24 vértices)
+        assert_eq!(mesh.vertices.len(), 24);
+
+        // 6 caras * 6 índices por cara = 36 índices
+        assert_eq!(mesh.indices.len(), 36);
+
+        // Culling de vecinos
+        chunk.set_voxel(0, 1, 0, 1);
+        let mesh_culled = generate_mesh(&chunk);
+
+        // 2 voxeles compartiendo una cara Y = 10 caras expuestas
+        // 10 caras * 4 vértices = 40 vértices
+        assert_eq!(mesh_culled.vertices.len(), 40);
+        // 10 caras * 6 índices = 60 índices
+        assert_eq!(mesh_culled.indices.len(), 60);
+    }
+}
