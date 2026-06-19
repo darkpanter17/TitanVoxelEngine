@@ -2423,7 +2423,6 @@ name = "titan_voxel_engine"
 version = "0.4.0"
 dependencies = [
  "anyhow",
- "bitflags 2.10.0",
  "bytemuck",
  "env_logger",
  "glam",
