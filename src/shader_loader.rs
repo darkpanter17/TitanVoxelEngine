@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+
+/// DEPRECATED: This module is deprecated because the engine uses WGSL exclusively.
+/// Legacy GLSL shader loading functions are preserved but silenced.
+
 use std::fs;
 use std::io;
 
