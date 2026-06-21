@@ -91,15 +91,54 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        use rayon::prelude::*;
+
+        let mut chunks: Vec<Chunk> = Vec::new();
+        // Generamos un grid de 3x3 chunks
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunks.push(Chunk::new(IVec3::new(cx, 0, cz)));
+            }
+        }
+
+        // Generar el terreno en paralelo
+        chunks.par_iter_mut().for_each(|chunk| {
+            let offset_x = (chunk.position.x * crate::chunk::CHUNK_SIZE as i32) as f32;
+            let offset_z = (chunk.position.z * crate::chunk::CHUNK_SIZE as i32) as f32;
+
+            for x in 0..crate::chunk::CHUNK_SIZE {
+                for z in 0..crate::chunk::CHUNK_SIZE {
+                    let world_x = offset_x + x as f32;
+                    let world_z = offset_z + z as f32;
+
+                    // Simple sine wave terrain
+                    let height = ( (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0 + 10.0 ) as usize;
+                    let height = height.clamp(1, crate::chunk::CHUNK_HEIGHT - 1);
+
+                    for y in 0..height {
+                        let id = if y == height - 1 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        // Generar mallas en paralelo
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(|chunk| mesher::generate_mesh(chunk)).collect();
+
+        // Combinar todas las mallas
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(mesh.indices.into_iter().map(|i| i + vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
