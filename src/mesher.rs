@@ -108,9 +108,34 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
              pos: [[f32; 3]; 4], layer: u32) {
     verts.push(Vertex { pos: pos[0], uv: [0.0, 1.0], layer });
-    verts.push(Vertex { pos: pos[1], uv: [0.0, 0.0], layer });
+    verts.push(Vertex { pos: pos[1], uv: [1.0, 1.0], layer });
     verts.push(Vertex { pos: pos[2], uv: [1.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[3], uv: [1.0, 1.0], layer });
+    verts.push(Vertex { pos: pos[3], uv: [0.0, 0.0], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT};
+    use glam::IVec3;
+
+    #[test]
+    fn test_meshing() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        let mesh = generate_mesh(&chunk);
+        // A single isolated block should generate 6 faces * 4 vertices = 24 vertices
+        // and 6 faces * 6 indices = 36 indices.
+        assert_eq!(mesh.vertices.len(), 24);
+        assert_eq!(mesh.indices.len(), 36);
+
+        // Test culling
+        chunk.set_voxel(0, 1, 0, 1);
+        let mesh2 = generate_mesh(&chunk);
+        // Two adjacent blocks should cull the touching faces, generating 10 faces in total
+        assert_eq!(mesh2.vertices.len(), 10 * 4);
+        assert_eq!(mesh2.indices.len(), 10 * 6);
+    }
 }

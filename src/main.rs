@@ -73,6 +73,14 @@ fn main() {
                 if !state.input(event) { 
                     match event {
                         WindowEvent::CloseRequested => elwt.exit(),
+                        WindowEvent::KeyboardInput {
+                            event: winit::event::KeyEvent {
+                                physical_key: winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape),
+                                state: winit::event::ElementState::Pressed,
+                                ..
+                            },
+                            ..
+                        } => elwt.exit(),
                         WindowEvent::Resized(physical_size) => state.resize(*physical_size),
                         WindowEvent::RedrawRequested => {
                             state.update();
