@@ -114,3 +114,25 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_is_air_bounds() {
+        let chunk = Chunk::new(IVec3::ZERO);
+        assert!(is_air(&chunk, -1, 0, 0));
+        assert!(is_air(&chunk, CHUNK_SIZE as i32, 0, 0));
+        assert!(is_air(&chunk, 0, CHUNK_HEIGHT as i32, 0));
+    }
+
+    #[test]
+    fn test_is_air_voxel() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        assert!(is_air(&chunk, 0, 0, 0)); // By default it's 0 (air)
+        chunk.set_voxel(0, 0, 0, 1);
+        assert!(!is_air(&chunk, 0, 0, 0)); // Now it's solid
+    }
+}
