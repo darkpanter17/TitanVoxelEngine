@@ -96,10 +96,10 @@ impl CameraController {
         camera.yaw += (mouse_dx as f32) * self.sensitivity;
         camera.pitch -= (mouse_dy as f32) * self.sensitivity;
         
-        // Limitar ángulo vertical para no romper el cuello
+        // Limit vertical angle to prevent neck breaking
         camera.pitch = camera.pitch.clamp(-1.5, 1.5);
         
-        // Recalcular vector target
+        // Recalculate target vector
         let (sin_pitch, cos_pitch) = camera.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = camera.yaw.sin_cos();
         
