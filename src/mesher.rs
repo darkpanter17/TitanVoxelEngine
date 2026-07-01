@@ -41,6 +41,7 @@ pub struct Mesh {
     pub indices: Vec<u32>,
 }
 
+#[allow(dead_code)]
 fn is_air(chunk: &Chunk, x: i32, y: i32, z: i32) -> bool {
     if x < 0 || y < 0 || z < 0 || x >= CHUNK_SIZE as i32 || y >= CHUNK_HEIGHT as i32 || z >= CHUNK_SIZE as i32 {
         return true; // Consider out-of-bounds as air to draw edge faces
@@ -57,48 +58,113 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let offset_y = (chunk.position.y * CHUNK_HEIGHT as i32) as f32;
     let offset_z = (chunk.position.z * CHUNK_SIZE as i32) as f32;
 
-    for x in 0..CHUNK_SIZE {
-        for z in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_HEIGHT {
-                let voxel_id = chunk.get_voxel(x, y, z);
-                 if voxel_id != 0 {
-                    let layer = voxel_id as u32 - 1; // Map block ID 1 to layer 0
-                    let xi = x as i32; let yi = y as i32; let zi = z as i32;
-                    let xf = xi as f32 + offset_x;
-                    let yf = yi as f32 + offset_y;
-                    let zf = zi as f32 + offset_z;
+    for axis in 0..3 {
+        let (u, v) = match axis {
+            0 => (1, 2), // X -> Y, Z
+            1 => (0, 2), // Y -> X, Z
+            _ => (0, 1), // Z -> X, Y
+        };
 
-                    // Top (+Y)
-                    if is_air(chunk, xi, yi + 1, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf]], layer);
+        let u_size = if u == 1 { CHUNK_HEIGHT } else { CHUNK_SIZE };
+        let v_size = if v == 1 { CHUNK_HEIGHT } else { CHUNK_SIZE };
+        let w_size = if axis == 1 { CHUNK_HEIGHT } else { CHUNK_SIZE };
+
+        for w in -1..(w_size as i32) {
+            for back_face in [false, true].iter() {
+                let mut mask = vec![0u16; u_size * v_size];
+
+                for v_idx in 0..v_size {
+                    for u_idx in 0..u_size {
+                        let mut coords1 = [0i32; 3];
+                        coords1[u] = u_idx as i32;
+                        coords1[v] = v_idx as i32;
+                        coords1[axis] = w + if *back_face { 0 } else { 1 };
+
+                        let mut coords2 = [0i32; 3];
+                        coords2[u] = u_idx as i32;
+                        coords2[v] = v_idx as i32;
+                        coords2[axis] = w + if *back_face { 1 } else { 0 };
+
+                        let b1_valid = !(coords1[0] < 0 || coords1[1] < 0 || coords1[2] < 0 || coords1[0] >= CHUNK_SIZE as i32 || coords1[1] >= CHUNK_HEIGHT as i32 || coords1[2] >= CHUNK_SIZE as i32);
+                        let b2_valid = !(coords2[0] < 0 || coords2[1] < 0 || coords2[2] < 0 || coords2[0] >= CHUNK_SIZE as i32 || coords2[1] >= CHUNK_HEIGHT as i32 || coords2[2] >= CHUNK_SIZE as i32);
+
+                        let id1 = if b1_valid { chunk.get_voxel(coords1[0] as usize, coords1[1] as usize, coords1[2] as usize) } else { 0 };
+                        let id2 = if b2_valid { chunk.get_voxel(coords2[0] as usize, coords2[1] as usize, coords2[2] as usize) } else { 0 };
+
+                        if id1 != 0 && id2 == 0 {
+                            mask[u_idx + v_idx * u_size] = id1;
+                        }
                     }
-                    // Bottom (-Y)
-                    if is_air(chunk, xi, yi - 1, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf], [xf + 1.0, yf, zf], [xf + 1.0, yf, zf + 1.0], [xf, yf, zf + 1.0]], layer);
+                }
+
+                let mut j = 0;
+                while j < v_size {
+                    let mut i = 0;
+                    while i < u_size {
+                        let id = mask[i + j * u_size];
+                        if id != 0 {
+                            let mut width = 1;
+                            while i + width < u_size && mask[i + width + j * u_size] == id {
+                                width += 1;
+                            }
+
+                            let mut height = 1;
+                            'outer: while j + height < v_size {
+                                for k in 0..width {
+                                    if mask[i + k + (j + height) * u_size] != id {
+                                        break 'outer;
+                                    }
+                                }
+                                height += 1;
+                            }
+
+                            let mut du = [0.0; 3];
+                            let mut dv = [0.0; 3];
+                            du[u] = width as f32;
+                            dv[v] = height as f32;
+
+                            let mut q = [0.0; 3];
+                            q[u] = i as f32;
+                            q[v] = j as f32;
+                            q[axis] = (w + if *back_face { 0 } else { 1 }) as f32;
+
+                            let bl = [q[0] + offset_x, q[1] + offset_y, q[2] + offset_z];
+                            let br = [q[0] + du[0] + offset_x, q[1] + du[1] + offset_y, q[2] + du[2] + offset_z];
+                            let tr = [q[0] + du[0] + dv[0] + offset_x, q[1] + du[1] + dv[1] + offset_y, q[2] + du[2] + dv[2] + offset_z];
+                            let tl = [q[0] + dv[0] + offset_x, q[1] + dv[1] + offset_y, q[2] + dv[2] + offset_z];
+
+                            let layer = (id - 1) as u32;
+
+                            let mut pos = [bl, br, tr, tl];
+
+                            if axis == 0 {
+                                if *back_face {
+                                    pos = [pos[0], pos[3], pos[2], pos[1]];
+                                }
+                            } else if axis == 1 {
+                                if !*back_face {
+                                    pos = [pos[0], pos[3], pos[2], pos[1]];
+                                }
+                            } else if axis == 2 {
+                                if !*back_face {
+                                    pos = [pos[0], pos[3], pos[2], pos[1]];
+                                }
+                            }
+
+                            push_face(&mut vertices, &mut indices, &mut index_count, pos, layer, width as f32, height as f32);
+
+                            for l in 0..height {
+                                for k in 0..width {
+                                    mask[i + k + (j + l) * u_size] = 0;
+                                }
+                            }
+                            i += width;
+                        } else {
+                            i += 1;
+                        }
                     }
-                    // Right (+X)
-                    if is_air(chunk, xi + 1, yi, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf]], layer);
-                    }
-                    // Left (-X)
-                    if is_air(chunk, xi - 1, yi, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf], [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0]], layer);
-                    }
-                    // Front (+Z)
-                    if is_air(chunk, xi, yi, zi + 1) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0]], layer);
-                    }
-                    // Back (-Z)
-                    if is_air(chunk, xi, yi, zi - 1) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf], [xf, yf, zf]], layer);
-                    }
-                 }
+                    j += 1;
+                }
             }
         }
     }
@@ -106,11 +172,37 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 }
 
 fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
-             pos: [[f32; 3]; 4], layer: u32) {
-    verts.push(Vertex { pos: pos[0], uv: [0.0, 1.0], layer });
-    verts.push(Vertex { pos: pos[1], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[2], uv: [1.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[3], uv: [1.0, 1.0], layer });
+             pos: [[f32; 3]; 4], layer: u32, width: f32, height: f32) {
+    // CCW mapping: [Bottom-Left, Bottom-Right, Top-Right, Top-Left]
+    verts.push(Vertex { pos: pos[0], uv: [0.0, height], layer });
+    verts.push(Vertex { pos: pos[1], uv: [width, height], layer });
+    verts.push(Vertex { pos: pos[2], uv: [width, 0.0], layer });
+    verts.push(Vertex { pos: pos[3], uv: [0.0, 0.0], layer });
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_is_air() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        chunk.set_voxel(1, 1, 1, 0);
+
+        // Inside bounds
+        assert_eq!(is_air(&chunk, 0, 0, 0), false);
+        assert_eq!(is_air(&chunk, 1, 1, 1), true);
+
+        // Out of bounds
+        assert_eq!(is_air(&chunk, -1, 0, 0), true);
+        assert_eq!(is_air(&chunk, 0, -1, 0), true);
+        assert_eq!(is_air(&chunk, 0, 0, -1), true);
+        assert_eq!(is_air(&chunk, CHUNK_SIZE as i32, 0, 0), true);
+        assert_eq!(is_air(&chunk, 0, CHUNK_HEIGHT as i32, 0), true);
+        assert_eq!(is_air(&chunk, 0, 0, CHUNK_SIZE as i32), true);
+    }
 }

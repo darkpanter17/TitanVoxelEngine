@@ -31,3 +31,29 @@ impl Chunk {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_new_and_get() {
+        let chunk = Chunk::new(IVec3::ZERO);
+        assert_eq!(chunk.get_voxel(0, 0, 0), 0);
+        assert_eq!(chunk.get_voxel(15, 128, 15), 0);
+    }
+
+    #[test]
+    fn test_chunk_set_and_get() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(5, 10, 15, 42);
+        assert_eq!(chunk.get_voxel(5, 10, 15), 42);
+    }
+
+    #[test]
+    fn test_chunk_out_of_bounds() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(CHUNK_SIZE, 0, 0, 99); // Should ignore
+        assert_eq!(chunk.get_voxel(CHUNK_SIZE, 0, 0), 0); // Should return 0
+    }
+}
