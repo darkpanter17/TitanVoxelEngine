@@ -1,6 +1,6 @@
 mod chunk; mod mesher; mod texture; mod shader_loader; mod state; mod camera;
 
-use winit::{event::*, event_loop::EventLoop, window::WindowBuilder};
+use winit::{event::*, event_loop::EventLoop, window::WindowBuilder, keyboard::{KeyCode, PhysicalKey}};
 use state::State;
 use mlua::prelude::*;
 use std::fs::{self, File};
@@ -73,6 +73,7 @@ fn main() {
                 if !state.input(event) { 
                     match event {
                         WindowEvent::CloseRequested => elwt.exit(),
+                        WindowEvent::KeyboardInput { event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::Escape), state: ElementState::Pressed, .. }, .. } => elwt.exit(),
                         WindowEvent::Resized(physical_size) => state.resize(*physical_size),
                         WindowEvent::RedrawRequested => {
                             state.update();
