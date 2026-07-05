@@ -57,48 +57,115 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
     let offset_y = (chunk.position.y * CHUNK_HEIGHT as i32) as f32;
     let offset_z = (chunk.position.z * CHUNK_SIZE as i32) as f32;
 
-    for x in 0..CHUNK_SIZE {
-        for z in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_HEIGHT {
-                let voxel_id = chunk.get_voxel(x, y, z);
-                 if voxel_id != 0 {
-                    let layer = voxel_id as u32 - 1; // Map block ID 1 to layer 0
-                    let xi = x as i32; let yi = y as i32; let zi = z as i32;
-                    let xf = xi as f32 + offset_x;
-                    let yf = yi as f32 + offset_y;
-                    let zf = zi as f32 + offset_z;
+    // Greedy meshing for 6 axes (d): 0=Y+, 1=Y-, 2=X+, 3=X-, 4=Z+, 5=Z-
+    for d in 0..6 {
+        // En Y (0,1) iteramos por altura, los ejes transversales son X y Z
+        // En X (2,3) iteramos por anchura (X), transversales son Z e Y
+        // En Z (4,5) iteramos por profundidad (Z), transversales son X e Y
+        let (axis_limit, u_limit, v_limit) = match d {
+            0 | 1 => (CHUNK_HEIGHT, CHUNK_SIZE, CHUNK_SIZE), // Y faces
+            2 | 3 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // X faces
+            4 | 5 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // Z faces
+            _ => unreachable!(),
+        };
 
-                    // Top (+Y)
-                    if is_air(chunk, xi, yi + 1, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf]], layer);
+        for i in 0..axis_limit {
+            let mut mask = vec![0u16; u_limit * v_limit];
+
+            // Build mask
+            for v in 0..v_limit {
+                for u in 0..u_limit {
+                    let (x, y, z) = match d {
+                        0 | 1 => (u, i, v), // Y faces: u=X, v=Z
+                        2 | 3 => (i, v, u), // X faces: u=Z, v=Y
+                        4 | 5 => (u, v, i), // Z faces: u=X, v=Y
+                        _ => unreachable!(),
+                    };
+
+                    let voxel = chunk.get_voxel(x, y, z);
+                    if voxel != 0 {
+                        // Check if face is exposed
+                        let exposed = match d {
+                            0 => is_air(chunk, x as i32, y as i32 + 1, z as i32), // Y+
+                            1 => is_air(chunk, x as i32, y as i32 - 1, z as i32), // Y-
+                            2 => is_air(chunk, x as i32 + 1, y as i32, z as i32), // X+
+                            3 => is_air(chunk, x as i32 - 1, y as i32, z as i32), // X-
+                            4 => is_air(chunk, x as i32, y as i32, z as i32 + 1), // Z+
+                            5 => is_air(chunk, x as i32, y as i32, z as i32 - 1), // Z-
+                            _ => false,
+                        };
+                        if exposed {
+                            mask[v * u_limit + u] = voxel;
+                        }
                     }
-                    // Bottom (-Y)
-                    if is_air(chunk, xi, yi - 1, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf], [xf + 1.0, yf, zf], [xf + 1.0, yf, zf + 1.0], [xf, yf, zf + 1.0]], layer);
+                }
+            }
+
+            // Mesh the mask
+            let mut v = 0;
+            while v < v_limit {
+                let mut u = 0;
+                while u < u_limit {
+                    let voxel = mask[v * u_limit + u];
+                    if voxel != 0 {
+                        // Compute width
+                        let mut width = 1;
+                        while u + width < u_limit && mask[v * u_limit + (u + width)] == voxel {
+                            width += 1;
+                        }
+
+                        // Compute height
+                        let mut height = 1;
+                        let mut done = false;
+                        while v + height < v_limit {
+                            for w in 0..width {
+                                if mask[(v + height) * u_limit + (u + w)] != voxel {
+                                    done = true;
+                                    break;
+                                }
+                            }
+                            if done { break; }
+                            height += 1;
+                        }
+
+                        // Clear the fused region in the mask
+                        for hv in 0..height {
+                            for wu in 0..width {
+                                mask[(v + hv) * u_limit + (u + wu)] = 0;
+                            }
+                        }
+
+                        // Generate the quad
+                        let layer = voxel as u32 - 1;
+                        let wf = width as f32;
+                        let hf = height as f32;
+
+                        let (xf, yf, zf) = match d {
+                            0 | 1 => (u as f32 + offset_x, i as f32 + offset_y, v as f32 + offset_z),
+                            2 | 3 => (i as f32 + offset_x, v as f32 + offset_y, u as f32 + offset_z),
+                            4 | 5 => (u as f32 + offset_x, v as f32 + offset_y, i as f32 + offset_z),
+                            _ => unreachable!(),
+                        };
+
+                        match d {
+                            0 => push_face(&mut vertices, &mut indices, &mut index_count,
+                                [[xf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf], [xf, yf + 1.0, zf]], wf, hf, layer), // Top (+Y)
+                            1 => push_face(&mut vertices, &mut indices, &mut index_count,
+                                [[xf, yf, zf], [xf + wf, yf, zf], [xf + wf, yf, zf + hf], [xf, yf, zf + hf]], wf, hf, layer), // Bottom (-Y)
+                            2 => push_face(&mut vertices, &mut indices, &mut index_count,
+                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X)
+                            3 => push_face(&mut vertices, &mut indices, &mut index_count,
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X)
+                            4 => push_face(&mut vertices, &mut indices, &mut index_count,
+                                [[xf, yf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf + wf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z)
+                            5 => push_face(&mut vertices, &mut indices, &mut index_count,
+                                [[xf + wf, yf, zf], [xf + wf, yf + hf, zf], [xf, yf + hf, zf], [xf, yf, zf]], wf, hf, layer), // Back (-Z)
+                            _ => {}
+                        }
                     }
-                    // Right (+X)
-                    if is_air(chunk, xi + 1, yi, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf], [xf + 1.0, yf, zf]], layer);
-                    }
-                    // Left (-X)
-                    if is_air(chunk, xi - 1, yi, zi) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf], [xf, yf + 1.0, zf], [xf, yf + 1.0, zf + 1.0], [xf, yf, zf + 1.0]], layer);
-                    }
-                    // Front (+Z)
-                    if is_air(chunk, xi, yi, zi + 1) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf, yf, zf + 1.0], [xf, yf + 1.0, zf + 1.0], [xf + 1.0, yf + 1.0, zf + 1.0], [xf + 1.0, yf, zf + 1.0]], layer);
-                    }
-                    // Back (-Z)
-                    if is_air(chunk, xi, yi, zi - 1) {
-                        push_face(&mut vertices, &mut indices, &mut index_count,
-                            [[xf + 1.0, yf, zf], [xf + 1.0, yf + 1.0, zf], [xf, yf + 1.0, zf], [xf, yf, zf]], layer);
-                    }
-                 }
+                    u += 1;
+                }
+                v += 1;
             }
         }
     }
@@ -106,11 +173,17 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 }
 
 fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
-             pos: [[f32; 3]; 4], layer: u32) {
-    verts.push(Vertex { pos: pos[0], uv: [0.0, 1.0], layer });
+             pos: [[f32; 3]; 4], width: f32, height: f32, layer: u32) {
+    // Restauramos el orden original de mapeo UV [BL, TL, TR, BR]
+    // Bottom-Left
+    verts.push(Vertex { pos: pos[0], uv: [0.0, height], layer });
+    // Top-Left
     verts.push(Vertex { pos: pos[1], uv: [0.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[2], uv: [1.0, 0.0], layer });
-    verts.push(Vertex { pos: pos[3], uv: [1.0, 1.0], layer });
+    // Top-Right
+    verts.push(Vertex { pos: pos[2], uv: [width, 0.0], layer });
+    // Bottom-Right
+    verts.push(Vertex { pos: pos[3], uv: [width, height], layer });
+
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }

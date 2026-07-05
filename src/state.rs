@@ -19,7 +19,24 @@ impl<'a> State<'a> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
         let surface = instance.create_surface(window).unwrap();
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: Some(&surface), force_fallback_adapter: false }).await.unwrap();
+
+        // Intentar obtener adapter primario
+        let adapter = match instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false
+        }).await {
+            Some(a) => a,
+            None => {
+                log::warn!("Fallo al obtener HighPerformance adapter. Intentando fallback...");
+                instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    compatible_surface: Some(&surface),
+                    force_fallback_adapter: true
+                }).await.expect("Fallo crítico: No se encontró ningún wgpu adapter (ni siquiera fallback)")
+            }
+        };
+
         let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
