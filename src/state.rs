@@ -43,18 +43,22 @@ impl<'a> State<'a> {
 
         // --- LOAD TEXTURES ---
         // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
+        const TEXTURE_PATHS: [&str; 5] = [
+            "assets/textures/1.png", // Dirt
+            "assets/textures/2.png", // Grass
+            "assets/textures/3.png", // Stone
+            "assets/textures/4.png", // Sand
+            "assets/textures/5.png", // Wood
         ];
         
+        let texture_paths_vec: Vec<String> = TEXTURE_PATHS.iter().map(|&s| s.to_string()).collect();
+
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
-        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
+        let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths_vec.clone()) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
-                texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
+                texture::Texture::create_placeholder_texture_array(&device, &queue, TEXTURE_PATHS.len() as u32)
             }
         };
 
@@ -108,15 +112,56 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        use rayon::prelude::*;
+
+        let chunk_positions = vec![
+            IVec3::new(-1, 0, -1), IVec3::new(0, 0, -1), IVec3::new(1, 0, -1),
+            IVec3::new(-1, 0, 0),  IVec3::new(0, 0, 0),  IVec3::new(1, 0, 0),
+            IVec3::new(-1, 0, 1),  IVec3::new(0, 0, 1),  IVec3::new(1, 0, 1),
+        ];
+
+        let mut chunks: Vec<Chunk> = chunk_positions
+            .into_iter()
+            .map(|pos| Chunk::new(pos))
+            .collect();
+
+        chunks.par_iter_mut().for_each(|chunk| {
+            let base_x = (chunk.position.x * 32) as f32;
+            let base_z = (chunk.position.z * 32) as f32;
+            for x in 0..32 {
+                for z in 0..32 {
+                    let world_x = base_x + x as f32;
+                    let world_z = base_z + z as f32;
+
+                    // Simple sine wave terrain
+                    let height = 16.0 + (world_x / 10.0).sin() * 5.0 + (world_z / 10.0).cos() * 5.0;
+                    let height = height as usize;
+
+                    for y in 0..=height {
+                        let id = if y == height { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        let meshes: Vec<mesher::Mesh> = chunks
+            .par_iter()
+            .map(|chunk| mesher::generate_mesh(chunk))
+            .collect();
+
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let _vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(&mesh.vertices);
+            all_indices.extend(mesh.indices.iter().map(|&i| i + _vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
