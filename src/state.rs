@@ -47,6 +47,8 @@ impl<'a> State<'a> {
             "assets/textures/1.png".to_string(), // Dirt
             "assets/textures/2.png".to_string(), // Grass
             "assets/textures/3.png".to_string(), // Stone
+            "assets/textures/4.png".to_string(), // Sand
+            "assets/textures/5.png".to_string(), // Wood
         ];
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
@@ -108,15 +110,52 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        use rayon::prelude::*;
+        let mut chunks = Vec::new();
+        // Generar un grid de 3x3 chunks
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunks.push(Chunk::new(IVec3::new(cx, 0, cz)));
+            }
+        }
+
+        // Generar terreno en paralelo
+        chunks.par_iter_mut().for_each(|chunk| {
+            let cx = chunk.position.x as f32 * crate::chunk::CHUNK_SIZE as f32;
+            let cz = chunk.position.z as f32 * crate::chunk::CHUNK_SIZE as f32;
+            for x in 0..crate::chunk::CHUNK_SIZE {
+                for z in 0..crate::chunk::CHUNK_SIZE {
+                    let world_x = cx + x as f32;
+                    let world_z = cz + z as f32;
+
+                    // Simple sine wave terrain
+                    let height = (16.0 + (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0) as usize;
+
+                    for y in 0..height {
+                        let id = if y == height - 1 { 2 } else { 1 }; // 2=Grass (Top layer), 1=Dirt (below)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        // Generar mallas en paralelo
+        let meshes: Vec<_> = chunks.par_iter().map(|c| mesher::generate_mesh(c)).collect();
+
+        // Combinar todas las mallas
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let _vertex_count = all_vertices.len() as u32;
+            let offset_indices: Vec<u32> = mesh.indices.iter().map(|&i| i + _vertex_count).collect();
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(offset_indices);
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }

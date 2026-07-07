@@ -148,18 +148,24 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                         };
 
                         match d {
+                            // Top (+Y): u=X, v=Z -> w=X, h=Z
                             0 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf], [xf, yf + 1.0, zf]], wf, hf, layer), // Top (+Y)
+                                [[xf, yf + 1.0, zf + hf], [xf, yf + 1.0, zf], [xf + wf, yf + 1.0, zf], [xf + wf, yf + 1.0, zf + hf]], wf, hf, layer),
+                            // Bottom (-Y): u=X, v=Z -> w=X, h=Z
                             1 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf + wf, yf, zf], [xf + wf, yf, zf + hf], [xf, yf, zf + hf]], wf, hf, layer), // Bottom (-Y)
+                                [[xf + wf, yf, zf + hf], [xf + wf, yf, zf], [xf, yf, zf], [xf, yf, zf + hf]], wf, hf, layer),
+                            // Right (+X): u=Z, v=Y -> w=Z, h=Y
                             2 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X)
+                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer),
+                            // Left (-X): u=Z, v=Y -> w=Z, h=Y
                             3 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer),
+                            // Front (+Z): u=X, v=Y -> w=X, h=Y
                             4 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf + wf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z)
+                                [[xf + wf, yf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf, yf, zf + 1.0]], wf, hf, layer),
+                            // Back (-Z): u=X, v=Y -> w=X, h=Y
                             5 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + wf, yf, zf], [xf + wf, yf + hf, zf], [xf, yf + hf, zf], [xf, yf, zf]], wf, hf, layer), // Back (-Z)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf + wf, yf + hf, zf], [xf + wf, yf, zf]], wf, hf, layer),
                             _ => {}
                         }
                     }
@@ -186,4 +192,40 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
 
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_push_face_vertices() {
+        let mut verts = Vec::new();
+        let mut inds = Vec::new();
+        let mut count = 0;
+        let pos = [[0.0, 1.0, 1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0, 1.0, 1.0]];
+        let layer = 0;
+        push_face(&mut verts, &mut inds, &mut count, pos, 1.0, 1.0, layer);
+        assert_eq!(verts.len(), 4);
+        assert_eq!(inds.len(), 6);
+        assert_eq!(count, 4);
+        assert_eq!(verts[0].pos, pos[0]);
+        assert_eq!(verts[1].pos, pos[1]);
+        assert_eq!(verts[2].pos, pos[2]);
+        assert_eq!(verts[3].pos, pos[3]);
+        assert_eq!(verts[0].uv, [0.0, 1.0]);
+        assert_eq!(verts[1].uv, [0.0, 0.0]);
+        assert_eq!(verts[2].uv, [1.0, 0.0]);
+        assert_eq!(verts[3].uv, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_mesher_single_voxel() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        let mesh = generate_mesh(&chunk);
+        assert_eq!(mesh.vertices.len(), 24); // 6 faces * 4 vertices
+        assert_eq!(mesh.indices.len(), 36);  // 6 faces * 6 indices
+    }
 }
