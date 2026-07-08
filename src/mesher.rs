@@ -151,15 +151,15 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                             0 => push_face(&mut vertices, &mut indices, &mut index_count,
                                 [[xf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf], [xf, yf + 1.0, zf]], wf, hf, layer), // Top (+Y)
                             1 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf + wf, yf, zf], [xf + wf, yf, zf + hf], [xf, yf, zf + hf]], wf, hf, layer), // Bottom (-Y)
+                                [[xf + wf, yf, zf + hf], [xf, yf, zf + hf], [xf, yf, zf], [xf + wf, yf, zf]], wf, hf, layer), // Bottom (-Y)
                             2 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X)
+                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X) (w=Z, h=Y)
                             3 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X) (w=Z, h=Y)
                             4 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf + wf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z)
+                                [[xf + wf, yf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z) (w=X, h=Y)
                             5 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + wf, yf, zf], [xf + wf, yf + hf, zf], [xf, yf + hf, zf], [xf, yf, zf]], wf, hf, layer), // Back (-Z)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf + wf, yf + hf, zf], [xf + wf, yf, zf]], wf, hf, layer), // Back (-Z) (w=X, h=Y)
                             _ => {}
                         }
                     }
