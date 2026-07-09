@@ -1,7 +1,8 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, chunk::{Chunk, CHUNK_SIZE}, texture, camera};
 use glam::{IVec3, Vec3};
+use rayon::prelude::*;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -17,8 +18,8 @@ pub struct State<'a> {
 impl<'a> State<'a> {
     pub async fn new(window: &'a Window) -> Self {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
-        let surface = instance.create_surface(window).unwrap();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..Default::default() });
+        let surface = instance.create_surface(window).expect("Failed to create wgpu surface");
 
         // Intentar obtener adapter primario
         let adapter = match instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -37,7 +38,10 @@ impl<'a> State<'a> {
             }
         };
 
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
+        let (device, queue) = match adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::default() }, None).await {
+            Ok(dq) => dq,
+            Err(_) => adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device Fallback"), required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::downlevel_webgl2_defaults() }, None).await.expect("Failed to get fallback device")
+        };
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
@@ -108,15 +112,50 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        // Generar grid de 3x3 chunks
+        let mut chunk_positions = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunk_positions.push(IVec3::new(cx, 0, cz));
+            }
+        }
+
+        let chunks: Vec<Chunk> = chunk_positions.into_par_iter().map(|pos| {
+            let mut chunk = Chunk::new(pos);
+            let base_y = 10;
+            for x in 0..CHUNK_SIZE {
+                for z in 0..CHUNK_SIZE {
+                    // Frecuencia para las ondas
+                    let freq_x = (x as f32 + (pos.x * CHUNK_SIZE as i32) as f32) * 0.1;
+                    let freq_z = (z as f32 + (pos.z * CHUNK_SIZE as i32) as f32) * 0.1;
+
+                    let height = base_y + (f32::sin(freq_x) * 5.0 + f32::cos(freq_z) * 5.0) as usize;
+
+                    for y in 0..height {
+                        let id = if y == height - 1 { 1 } else { 2 }; // 1=Grass, 2=Dirt
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+            chunk
+        }).collect();
+
+        // Generar mallas en paralelo
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(|c| mesher::generate_mesh(c)).collect();
+
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let _vertex_count = all_vertices.len() as u32;
+            let offset_indices: Vec<u32> = mesh.indices.iter().map(|i| i + _vertex_count).collect();
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(offset_indices);
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
