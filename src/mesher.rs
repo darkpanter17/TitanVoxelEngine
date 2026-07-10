@@ -63,9 +63,9 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
         // En X (2,3) iteramos por anchura (X), transversales son Z e Y
         // En Z (4,5) iteramos por profundidad (Z), transversales son X e Y
         let (axis_limit, u_limit, v_limit) = match d {
-            0 | 1 => (CHUNK_HEIGHT, CHUNK_SIZE, CHUNK_SIZE), // Y faces
-            2 | 3 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // X faces
-            4 | 5 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // Z faces
+            0 | 1 => (CHUNK_HEIGHT, CHUNK_SIZE, CHUNK_SIZE), // Y faces: limit, width=X, height=Z
+            2 | 3 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // X faces: limit, width=Z, height=Y
+            4 | 5 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // Z faces: limit, width=X, height=Y
             _ => unreachable!(),
         };
 
@@ -149,17 +149,17 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 
                         match d {
                             0 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf], [xf, yf + 1.0, zf]], wf, hf, layer), // Top (+Y)
+                                [[xf, yf + 1.0, zf + hf], [xf, yf + 1.0, zf], [xf + wf, yf + 1.0, zf], [xf + wf, yf + 1.0, zf + hf]], wf, hf, layer), // Top (+Y)
                             1 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf + wf, yf, zf], [xf + wf, yf, zf + hf], [xf, yf, zf + hf]], wf, hf, layer), // Bottom (-Y)
+                                [[xf, yf, zf], [xf, yf, zf + hf], [xf + wf, yf, zf + hf], [xf + wf, yf, zf]], wf, hf, layer), // Bottom (-Y)
                             2 => push_face(&mut vertices, &mut indices, &mut index_count,
                                 [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X)
                             3 => push_face(&mut vertices, &mut indices, &mut index_count,
                                 [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X)
                             4 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf + wf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z)
+                                [[xf + wf, yf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z)
                             5 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + wf, yf, zf], [xf + wf, yf + hf, zf], [xf, yf + hf, zf], [xf, yf, zf]], wf, hf, layer), // Back (-Z)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf + wf, yf + hf, zf], [xf + wf, yf, zf]], wf, hf, layer), // Back (-Z)
                             _ => {}
                         }
                     }

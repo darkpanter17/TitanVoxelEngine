@@ -17,7 +17,7 @@ pub struct State<'a> {
 impl<'a> State<'a> {
     pub async fn new(window: &'a Window) -> Self {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..Default::default() });
         let surface = instance.create_surface(window).unwrap();
 
         // Intentar obtener adapter primario
@@ -37,7 +37,13 @@ impl<'a> State<'a> {
             }
         };
 
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
+        let (device, queue) = match adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await {
+            Ok(d) => d,
+            Err(_) => {
+                log::warn!("Fallo al obtener features. Intentando fallback...");
+                adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device Fallback"), required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::downlevel_webgl2_defaults() }, None).await.expect("Fallo crítico en device")
+            }
+        };
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
@@ -47,6 +53,8 @@ impl<'a> State<'a> {
             "assets/textures/1.png".to_string(), // Dirt
             "assets/textures/2.png".to_string(), // Grass
             "assets/textures/3.png".to_string(), // Stone
+            "assets/textures/4.png".to_string(), // Sand
+            "assets/textures/5.png".to_string(), // Wood
         ];
         
         // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
@@ -108,15 +116,51 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        use rayon::prelude::*;
+
+        let grid_size = 3; // 3x3 chunks
+        let mut chunks: Vec<Chunk> = (0..grid_size * grid_size).map(|i| {
+            let cx = i % grid_size - 1; // -1, 0, 1
+            let cz = i / grid_size - 1; // -1, 0, 1
+            Chunk::new(IVec3::new(cx, 0, cz))
+        }).collect();
+
+        // Terrain generation
+        chunks.par_iter_mut().for_each(|chunk| {
+            let base_x = chunk.position.x * 32;
+            let base_z = chunk.position.z * 32;
+
+            for x in 0..32 {
+                for z in 0..32 {
+                    let world_x = (base_x + x as i32) as f32;
+                    let world_z = (base_z + z as i32) as f32;
+                    let height = (5.0 * ((world_x * 0.1).sin() + (world_z * 0.1).cos()) + 10.0) as usize;
+
+                    for y in 0..=height {
+                        let id = if y == height { 1 } else { 2 };
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        // Mesh generation
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(|chunk| {
+            mesher::generate_mesh(chunk)
+        }).collect();
+
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let _vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(mesh.vertices);
+            all_indices.extend(mesh.indices.iter().map(|&idx| idx + _vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
