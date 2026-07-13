@@ -187,3 +187,29 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_mesher_empty_chunk() {
+        let chunk = Chunk::new(IVec3::ZERO);
+        let mesh = generate_mesh(&chunk);
+        assert!(mesh.vertices.is_empty());
+        assert!(mesh.indices.is_empty());
+    }
+
+    #[test]
+    fn test_mesher_single_voxel() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        let mesh = generate_mesh(&chunk);
+
+        // Un solo voxel debería generar 6 caras, cada cara tiene 4 vértices
+        assert_eq!(mesh.vertices.len(), 24);
+        // Cada cara tiene 6 índices
+        assert_eq!(mesh.indices.len(), 36);
+    }
+}
