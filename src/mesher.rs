@@ -64,8 +64,8 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
         // En Z (4,5) iteramos por profundidad (Z), transversales son X e Y
         let (axis_limit, u_limit, v_limit) = match d {
             0 | 1 => (CHUNK_HEIGHT, CHUNK_SIZE, CHUNK_SIZE), // Y faces
-            2 | 3 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // X faces
-            4 | 5 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // Z faces
+            2 | 3 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // X faces: w is Z, h is Y
+            4 | 5 => (CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT), // Z faces: w is X, h is Y
             _ => unreachable!(),
         };
 
@@ -77,7 +77,7 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                 for u in 0..u_limit {
                     let (x, y, z) = match d {
                         0 | 1 => (u, i, v), // Y faces: u=X, v=Z
-                        2 | 3 => (i, v, u), // X faces: u=Z, v=Y
+                        2 | 3 => (i, v, u), // X faces: u=Z, v=Y (Swapped back, u=Z, v=Y)
                         4 | 5 => (u, v, i), // Z faces: u=X, v=Y
                         _ => unreachable!(),
                     };
