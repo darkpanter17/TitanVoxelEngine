@@ -11,7 +11,7 @@ pub struct Texture {
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    // Crear el Z-Buffer (Profundidad)
+    // Create the Z-Buffer (Depth)
     pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
         let size = wgpu::Extent3d {
             width: config.width,
@@ -38,12 +38,12 @@ impl Texture {
         Self { texture, view, sampler }
     }
 
-    // CARGAR ARRAY DE TEXTURAS (La parte difícil)
+    // LOAD TEXTURE ARRAY (The difficult part)
     pub fn load_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, paths: Vec<String>) -> anyhow::Result<Self> {
         let mut layers = Vec::new();
         let (mut width, mut height) = (0, 0);
 
-        // 1. Cargar imágenes y asegurar tamaño
+        // 1. Load images and ensure size
         for (i, path) in paths.iter().enumerate() {
             let img = image::open(path)?.to_rgba8();
             let dim = img.dimensions();
@@ -51,9 +51,9 @@ impl Texture {
             if i == 0 {
                 width = dim.0; height = dim.1;
             } else {
-                // En un motor real, aquí redimensionaríamos. Hoy hacemos panic si no coinciden.
-                assert_eq!(dim.0, width, "Todas las texturas deben tener el mismo ancho");
-                assert_eq!(dim.1, height, "Todas las texturas deben tener el mismo alto");
+                // In a real engine, we would resize here. For now we panic if they do not match.
+                assert_eq!(dim.0, width, "All textures must have the same width");
+                assert_eq!(dim.1, height, "All textures must have the same height");
             }
             layers.push(img);
         }
@@ -61,7 +61,7 @@ impl Texture {
         let size = wgpu::Extent3d {
             width,
             height,
-            depth_or_array_layers: layers.len() as u32, // N Capas
+            depth_or_array_layers: layers.len() as u32, // N Layers
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -75,13 +75,13 @@ impl Texture {
             view_formats: &[],
         });
 
-        // 2. Copiar bytes a la GPU capa por capa
+        // 2. Copy bytes to GPU layer by layer
         for (i, img) in layers.iter().enumerate() {
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 }, // Z es el índice del array
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 }, // Z is the array index
                     aspect: wgpu::TextureAspect::All,
                 },
                 img,
@@ -96,7 +96,7 @@ impl Texture {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("Texture Array View"),
-            dimension: Some(wgpu::TextureViewDimension::D2Array), // ¡IMPORTANTE!
+            dimension: Some(wgpu::TextureViewDimension::D2Array), // IMPORTANT!
             ..Default::default()
         });
 
@@ -111,7 +111,7 @@ impl Texture {
         Ok(Self { texture, view, sampler })
     }
 
-    /// Crea un array de texturas placeholder (1x1 por capa) cuando falla la descarga o carga.
+    /// Creates a placeholder texture array (1x1 per layer) when download or load fails.
     pub fn create_placeholder_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, num_layers: u32) -> Self {
         let width = 1u32;
         let height = 1u32;
@@ -130,13 +130,15 @@ impl Texture {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        // Rellenar cada capa con un color distinto (RGBA 1x1) para distinguir bloques
-        let colors: [[u8; 4]; 3] = [
-            [100, 70, 50, 255],   // marrón (tierra)
-            [80, 140, 60, 255],   // verde (hierba)
-            [120, 120, 120, 255], // gris (piedra)
+        // Fill each layer with a distinct color (RGBA 1x1) to distinguish blocks
+        let colors: [[u8; 4]; 5] = [
+            [100, 70, 50, 255],   // brown (dirt)
+            [80, 140, 60, 255],   // green (grass)
+            [120, 120, 120, 255], // gray (stone)
+            [244, 164, 96, 255],  // sandy brown (sand)
+            [160, 82, 45, 255],   // sienna (wood)
         ];
-        for i in 0..num_layers.min(3) {
+        for i in 0..num_layers.min(5) {
             let c = colors[i as usize];
             queue.write_texture(
                 wgpu::ImageCopyTexture {
@@ -154,7 +156,7 @@ impl Texture {
                 wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
             );
         }
-        for i in 3..num_layers {
+        for i in 5..num_layers {
             let c: [u8; 4] = [80, 80, 80, 255];
             queue.write_texture(
                 wgpu::ImageCopyTexture {
