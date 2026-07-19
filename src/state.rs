@@ -1,7 +1,8 @@
 use winit::{event::*, window::Window};
 use wgpu::util::DeviceExt;
-use crate::{mesher::{self, Vertex}, chunk::Chunk, texture, camera};
+use crate::{mesher::{self, Vertex}, chunk::{Chunk, CHUNK_SIZE, CHUNK_HEIGHT}, texture, camera};
 use glam::{IVec3, Vec3};
+use rayon::prelude::*;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>, pub device: wgpu::Device, pub queue: wgpu::Queue,
@@ -17,10 +18,10 @@ pub struct State<'a> {
 impl<'a> State<'a> {
     pub async fn new(window: &'a Window) -> Self {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..Default::default() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..Default::default() });
         let surface = instance.create_surface(window).unwrap();
 
-        // Intentar obtener adapter primario
+        // Try to get primary adapter
         let adapter = match instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
@@ -28,32 +29,49 @@ impl<'a> State<'a> {
         }).await {
             Some(a) => a,
             None => {
-                log::warn!("Fallo al obtener HighPerformance adapter. Intentando fallback...");
+                log::warn!("Failed to get HighPerformance adapter. Trying fallback...");
                 instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::LowPower,
                     compatible_surface: Some(&surface),
                     force_fallback_adapter: true
-                }).await.expect("Fallo crítico: No se encontró ningún wgpu adapter (ni siquiera fallback)")
+                }).await.expect("Critical error: No wgpu adapter found (not even fallback)")
             }
         };
 
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor { label: Some("Device"), required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING, required_limits: wgpu::Limits::default() }, None).await.unwrap();
+        let (device, queue) = match adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Primary Device"),
+            required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+            required_limits: wgpu::Limits::default()
+        }, None).await {
+            Ok(dq) => dq,
+            Err(e) => {
+                log::warn!("Primary device request failed: {}. Falling back to lowered limits...", e);
+                adapter.request_device(&wgpu::DeviceDescriptor {
+                    label: Some("Fallback Device"),
+                    required_features: wgpu::Features::TEXTURE_BINDING_ARRAY | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                }, None).await.expect("Critical error: Failed to request wgpu device even with lowered limits")
+            }
+        };
+
         let config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
         surface.configure(&device, &config);
 
         // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
+        // Load the textures downloaded by Lua
         let texture_paths = vec![
             "assets/textures/1.png".to_string(), // Dirt
             "assets/textures/2.png".to_string(), // Grass
             "assets/textures/3.png".to_string(), // Stone
+            "assets/textures/4.png".to_string(), // Sand
+            "assets/textures/5.png".to_string(), // Wood
         ];
         
-        // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
+        // Load array; if it fails (broken URLs or not PNG), use placeholders so the window still opens
         let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
             Ok(t) => t,
             Err(e) => {
-                log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
+                log::warn!("Textures not loaded: {}. Using placeholder.", e);
                 texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
             }
         };
@@ -108,15 +126,53 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut chunks = Vec::new();
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                chunks.push(Chunk::new(IVec3::new(cx, 0, cz)));
+            }
+        }
+
+        // Generate terrain in parallel using a sine wave function
+        chunks.par_iter_mut().for_each(|chunk| {
+            let cx_offset = chunk.position.x * CHUNK_SIZE as i32;
+            let cz_offset = chunk.position.z * CHUNK_SIZE as i32;
+
+            for x in 0..CHUNK_SIZE {
+                for z in 0..CHUNK_SIZE {
+                    let world_x = cx_offset + x as i32;
+                    let _world_z = cz_offset + z as i32; // Kept for potential future use (e.g. 2D terrain noise)
+
+                    // Simple sine wave terrain calculation based on world position
+                    let surface_y = ((world_x as f32 / 5.0).sin() * 5.0 + 8.0) as usize;
+                    let clamped_y = surface_y.min(CHUNK_HEIGHT - 1);
+
+                    for y in 0..=clamped_y {
+                        let id = if y == clamped_y { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                        chunk.set_voxel(x, y, z, id);
+                    }
+                }
+            }
+        });
+
+        // --- MESH GENERATION ---
+        // Generate chunk meshes in parallel
+        let meshes: Vec<mesher::Mesh> = chunks.par_iter().map(mesher::generate_mesh).collect();
+
+        // Combine all meshes into single buffers
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for mesh in meshes {
+            let _vertex_count = all_vertices.len() as u32;
+            all_vertices.extend(&mesh.vertices);
+            // Offset the indices by the number of vertices already in the global buffer
+            all_indices.extend(mesh.indices.iter().map(|&i| i + _vertex_count));
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }

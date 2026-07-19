@@ -141,25 +141,27 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
                         let hf = height as f32;
 
                         let (xf, yf, zf) = match d {
-                            0 | 1 => (u as f32 + offset_x, i as f32 + offset_y, v as f32 + offset_z),
-                            2 | 3 => (i as f32 + offset_x, v as f32 + offset_y, u as f32 + offset_z),
-                            4 | 5 => (u as f32 + offset_x, v as f32 + offset_y, i as f32 + offset_z),
+                            0 | 1 => (u as f32 + offset_x, i as f32 + offset_y, v as f32 + offset_z), // Y faces: u=X, v=Z
+                            2 | 3 => (i as f32 + offset_x, v as f32 + offset_y, u as f32 + offset_z), // X faces: u=Z, v=Y
+                            4 | 5 => (u as f32 + offset_x, v as f32 + offset_y, i as f32 + offset_z), // Z faces: u=X, v=Y
                             _ => unreachable!(),
                         };
 
+                        // push_face coordinates: [Bottom-Left, Top-Left, Top-Right, Bottom-Right]
+                        // X and Z coordinates use wf (width) and hf (height) appropriately depending on the face mapping.
                         match d {
                             0 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf + hf], [xf + wf, yf + 1.0, zf], [xf, yf + 1.0, zf]], wf, hf, layer), // Top (+Y)
+                                [[xf, yf + 1.0, zf + hf], [xf, yf + 1.0, zf], [xf + wf, yf + 1.0, zf], [xf + wf, yf + 1.0, zf + hf]], wf, hf, layer), // Top (+Y)
                             1 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf + wf, yf, zf], [xf + wf, yf, zf + hf], [xf, yf, zf + hf]], wf, hf, layer), // Bottom (-Y)
+                                [[xf, yf, zf], [xf, yf, zf + hf], [xf + wf, yf, zf + hf], [xf + wf, yf, zf]], wf, hf, layer), // Bottom (-Y)
                             2 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X)
+                                [[xf + 1.0, yf, zf + wf], [xf + 1.0, yf + hf, zf + wf], [xf + 1.0, yf + hf, zf], [xf + 1.0, yf, zf]], wf, hf, layer), // Right (+X), u=Z, v=Y
                             3 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf, yf + hf, zf + wf], [xf, yf, zf + wf]], wf, hf, layer), // Left (-X), u=Z, v=Y
                             4 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf, yf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf + wf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z)
+                                [[xf + wf, yf, zf + 1.0], [xf + wf, yf + hf, zf + 1.0], [xf, yf + hf, zf + 1.0], [xf, yf, zf + 1.0]], wf, hf, layer), // Front (+Z), u=X, v=Y
                             5 => push_face(&mut vertices, &mut indices, &mut index_count,
-                                [[xf + wf, yf, zf], [xf + wf, yf + hf, zf], [xf, yf + hf, zf], [xf, yf, zf]], wf, hf, layer), // Back (-Z)
+                                [[xf, yf, zf], [xf, yf + hf, zf], [xf + wf, yf + hf, zf], [xf + wf, yf, zf]], wf, hf, layer), // Back (-Z), u=X, v=Y
                             _ => {}
                         }
                     }
@@ -174,7 +176,7 @@ pub fn generate_mesh(chunk: &Chunk) -> Mesh {
 
 fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
              pos: [[f32; 3]; 4], width: f32, height: f32, layer: u32) {
-    // Restauramos el orden original de mapeo UV [BL, TL, TR, BR]
+    // Restore the original UV mapping order [BL, TL, TR, BR]
     // Bottom-Left
     verts.push(Vertex { pos: pos[0], uv: [0.0, height], layer });
     // Top-Left
@@ -186,4 +188,38 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
 
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_push_face() {
+        let mut verts = Vec::new();
+        let mut inds = Vec::new();
+        let mut count = 0;
+
+        let pos = [
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0],
+        ];
+
+        push_face(&mut verts, &mut inds, &mut count, pos, 1.0, 1.0, 0);
+
+        assert_eq!(verts.len(), 4);
+        assert_eq!(inds.len(), 6);
+        assert_eq!(count, 4);
+
+        // Verify UVs are correct for [BL, TL, TR, BR] with CCW indices
+        assert_eq!(verts[0].uv, [0.0, 1.0]);
+        assert_eq!(verts[1].uv, [0.0, 0.0]);
+        assert_eq!(verts[2].uv, [1.0, 0.0]);
+        assert_eq!(verts[3].uv, [1.0, 1.0]);
+
+        // Verify indices for CCW triangles
+        assert_eq!(inds, vec![0, 1, 2, 2, 3, 0]);
+    }
 }
