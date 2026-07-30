@@ -187,3 +187,21 @@ fn push_face(verts: &mut Vec<Vertex>, inds: &mut Vec<u32>, count: &mut u32,
     inds.extend_from_slice(&[*count, *count+1, *count+2, *count+2, *count+3, *count]);
     *count += 4;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::IVec3;
+
+    #[test]
+    fn test_generate_mesh_single_voxel() {
+        let mut chunk = Chunk::new(IVec3::ZERO);
+        chunk.set_voxel(0, 0, 0, 1);
+        let mesh = generate_mesh(&chunk);
+
+        // 1 voxel should have 6 faces, 4 vertices per face = 24 vertices
+        assert_eq!(mesh.vertices.len(), 24);
+        // 1 voxel should have 6 faces, 6 indices per face = 36 indices
+        assert_eq!(mesh.indices.len(), 36);
+    }
+}

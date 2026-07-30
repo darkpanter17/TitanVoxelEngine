@@ -10,15 +10,15 @@ fn main() {
     
     // --- LUA SETUP ---
     let lua = Lua::new();
-    // Cliente HTTP con User-Agent (GitHub y otros exigen UA; sin él devuelven HTML)
+    // HTTP client with User-Agent (required by some servers to not return HTML)
     let client = reqwest::blocking::Client::builder()
         .user_agent("TitanVoxelEngine/1.0")
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new());
 
-    // Exponer función de descarga a Lua (Bloqueante para el init)
+    // Expose download function to Lua (Blocking for init)
     let download_fn = lua.create_function(move |_, (url, path): (String, String)| {
-        println!("[Rust] Descargando: {} -> {}", url, path);
+        println!("[Rust] Downloading: {} -> {}", url, path);
         
         if let Some(parent) = std::path::Path::new(&path).parent() {
             fs::create_dir_all(parent).ok();
@@ -36,16 +36,16 @@ fn main() {
             Ok(b) => b,
             Err(_) => return Ok(false),
         };
-        // Validar firma PNG (89 50 4E 47 0D 0A 1A 0A) para no guardar HTML/error
+        // Validate PNG signature (89 50 4E 47 0D 0A 1A 0A) to avoid saving HTML/errors
         const PNG_SIG: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         if bytes.len() < 8 || bytes[0..8] != PNG_SIG {
-            eprintln!("[Rust] No es PNG válido ({} bytes)", bytes.len());
+            eprintln!("[Rust] Not a valid PNG ({} bytes)", bytes.len());
             return Ok(false);
         }
         match File::create(&path).and_then(|mut f| std::io::Write::write_all(&mut f, &bytes)) {
             Ok(_) => Ok(true),
             Err(e) => {
-                eprintln!("[Rust] Error escribiendo {}: {}", path, e);
+                eprintln!("[Rust] Error writing {}: {}", path, e);
                 Ok(false)
             }
         }
@@ -53,17 +53,17 @@ fn main() {
     
     lua.globals().set("download_file", download_fn).unwrap();
 
-    // Ejecutar Downloader
+    // Execute Downloader
     if let Ok(script) = fs::read_to_string("scripts/asset_downloader.lua") {
         if let Err(e) = lua.load(&script).exec() {
-            eprintln!("Error en script Lua: {}", e);
+            eprintln!("Error in Lua script: {}", e);
         }
     }
 
     // --- GRAPHICS SETUP ---
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().with_title("Titan Voxel: Textured").build(&event_loop).unwrap();
-    window.set_cursor_visible(false); // Ocultar ratón para modo FPS
+    window.set_cursor_visible(false); // Hide mouse cursor for FPS mode
 
     let mut state = pollster::block_on(State::new(&window));
 

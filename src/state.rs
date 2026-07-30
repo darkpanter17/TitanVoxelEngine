@@ -10,9 +10,15 @@ pub struct State<'a> {
     vertex_buffer: wgpu::Buffer, index_buffer: wgpu::Buffer, num_indices: u32,
     depth_texture: texture::Texture,
     camera: camera::Camera, camera_controller: camera::CameraController, camera_uniform: camera::CameraUniform, camera_buffer: wgpu::Buffer, camera_bind_group: wgpu::BindGroup,
-    // NUEVO: Grupo de texturas
+    // NEW: Texture bind group
     diffuse_bind_group: wgpu::BindGroup, 
 }
+
+const TEXTURE_PATHS: [&str; 3] = [
+    "assets/textures/1.png", // Dirt
+    "assets/textures/2.png", // Grass
+    "assets/textures/3.png", // Stone
+];
 
 impl<'a> State<'a> {
     pub async fn new(window: &'a Window) -> Self {
@@ -42,18 +48,14 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         // --- LOAD TEXTURES ---
-        // Buscamos las texturas bajadas por Lua
-        let texture_paths = vec![
-            "assets/textures/1.png".to_string(), // Dirt
-            "assets/textures/2.png".to_string(), // Grass
-            "assets/textures/3.png".to_string(), // Stone
-        ];
+        // We look for the textures downloaded by Lua
+        let texture_paths = TEXTURE_PATHS.iter().map(|s| s.to_string()).collect::<Vec<String>>();
         
-        // Cargar array; si falla (URLs caídas o no PNG), usar placeholder para que la ventana abra
+        // Load array; if it fails (URLs down or not PNG), use placeholder so the window can open
         let texture_array = match texture::Texture::load_texture_array(&device, &queue, texture_paths.clone()) {
             Ok(t) => t,
             Err(e) => {
-                log::warn!("Texturas no cargadas: {}. Usando placeholder.", e);
+                log::warn!("Textures not loaded: {}. Using placeholder.", e);
                 texture::Texture::create_placeholder_texture_array(&device, &queue, texture_paths.len() as u32)
             }
         };
@@ -108,15 +110,37 @@ impl<'a> State<'a> {
         });
 
         // --- CHUNK DATA ---
-        let mut chunk = Chunk::new(IVec3::ZERO);
-        for x in 0..32 { for z in 0..32 { for y in 0..16 {
-            let id = if y == 15 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
-            chunk.set_voxel(x, y, z, id);
-        }}}
-        let mesh = mesher::generate_mesh(&chunk);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&mesh.vertices), usage: wgpu::BufferUsages::VERTEX });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&mesh.indices), usage: wgpu::BufferUsages::INDEX });
-        let num_indices = mesh.indices.len() as u32;
+        let mut all_vertices: Vec<mesher::Vertex> = Vec::new();
+        let mut all_indices: Vec<u32> = Vec::new();
+
+        for cx in -1..=1 {
+            for cz in -1..=1 {
+                let mut chunk = Chunk::new(IVec3::new(cx, 0, cz));
+                for x in 0..32 {
+                    for z in 0..32 {
+                        let world_x = (cx * 32) as f32 + x as f32;
+                        let world_z = (cz * 32) as f32 + z as f32;
+                        // Sine wave calculations for height mapping
+                        let height = (10.0 + (world_x * 0.1).sin() * 5.0 + (world_z * 0.1).cos() * 5.0) as usize;
+                        let height = height.clamp(1, 255);
+
+                        for y in 0..height {
+                            let id = if y == height - 1 { 1 } else { 2 }; // 1=Grass (Top), 2=Dirt (Bottom)
+                            chunk.set_voxel(x, y, z, id);
+                        }
+                    }
+                }
+                let mesh = mesher::generate_mesh(&chunk);
+
+                let _vertex_count = all_vertices.len() as u32;
+                all_vertices.extend(&mesh.vertices);
+                all_indices.extend(mesh.indices.iter().map(|&i| i + _vertex_count));
+            }
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Vertex Buffer"), contents: bytemuck::cast_slice(&all_vertices), usage: wgpu::BufferUsages::VERTEX });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("Index Buffer"), contents: bytemuck::cast_slice(&all_indices), usage: wgpu::BufferUsages::INDEX });
+        let num_indices = all_indices.len() as u32;
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Self { window, surface, device, queue, config, size, render_pipeline, vertex_buffer, index_buffer, num_indices, depth_texture, camera, camera_controller, camera_uniform, camera_buffer, camera_bind_group, diffuse_bind_group }
@@ -144,7 +168,7 @@ impl<'a> State<'a> {
             });
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]); // ¡TEXTURAS!
+            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]); // TEXTURES!
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
